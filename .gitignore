@@ -1,0 +1,7 @@
+.idea/
+.venv/
+/data/
+src/__pycache__/
+
+*.pyc
+*.pkl
