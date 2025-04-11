@@ -1,29 +1,30 @@
-import os
 import random
 
 import numpy as np
 from loguru import logger
 
-
-def ensure_dir(file_path):
-    directory = os.path.dirname(file_path)
-    if not os.path.exists(directory):
-        os.makedirs(directory)
+from src.utils.utils import load_data, ensure_dir
 
 
 class MatrixFactorization:
-    Regularization = 0.02
-    LearnRate = 0.01
+    Regularization = 0.002
+    LearnRate = 0.002
     BiasLearnRate = 0.005
     BiasReg = 0.002
 
-    def __init__(self, save_path='./models/funk_svd/', n_factors=20, max_iterations=15, stop_threshold=0.005):
+    def __init__(self, save_path='./models/funk_svd/', n_factors=20, max_iterations=15, stop_threshold=0.005,
+                 learn_rate=0.002, bias_learn_rate=0.005, regularization=0.002, bias_reg=0.002):
+        # Model parameters
         self.save_path = save_path
         self.n_factors = n_factors
         self.MAX_ITERATIONS = max_iterations
         self.stop_threshold = stop_threshold
+        self.LearnRate = learn_rate
+        self.BiasLearnRate = bias_learn_rate
+        self.Regularization = regularization
+        self.BiasReg = bias_reg
 
-        # Initialize to None - will be set during fit
+        # Model state
         self.user_factors = None
         self.item_factors = None
         self.user_bias = None
@@ -35,65 +36,74 @@ class MatrixFactorization:
         self.movie_ids = None
         self.iterations = 0
 
-        # Set random seed for reproducibility
+        # For reproducibility
         random.seed(42)
         ensure_dir(save_path)
 
     def initialize_factors(self, data):
-
-        """Initialize factor matrices and bias terms"""
+        """Initialize model parameters"""
         # Extract unique IDs
-        self.user_ids = set(np.unique(data['userId']))
-        self.movie_ids = set(np.unique(data['bggId']))
+        self.user_ids = list(np.unique(data['userId']))
+        self.movie_ids = list(np.unique(data['bggId']))
 
-        # Create mappings for efficient index access
+        # Create mappings
         self.user_id_to_index = {uid: idx for idx, uid in enumerate(self.user_ids)}
         self.item_id_to_index = {mid: idx for idx, mid in enumerate(self.movie_ids)}
 
-        # Initialize latent factors with proper scaling
-        self.item_factors = np.full((len(self.item_id_to_index), self.n_factors), 0.1)
-        self.user_factors = np.full((len(self.user_id_to_index), self.n_factors), 0.1)
-
-        # Initialize bias terms
-        self.user_bias = np.zeros(len(self.user_id_to_index))
-        self.item_bias = np.zeros(len(self.item_id_to_index))
+        # Initialize factors and bias terms
+        n_users = len(self.user_id_to_index)
+        n_items = len(self.item_id_to_index)
+        self.user_factors = np.full((n_users, self.n_factors), 0.1)
+        self.item_factors = np.full((n_items, self.n_factors), 0.1)
+        self.user_bias = np.zeros(n_users)
+        self.item_bias = np.zeros(n_items)
 
         # Calculate global mean
         self.all_movies_mean = np.mean(data['rating'])
 
-    def predict(self, user, item, factors_to_use=None):
-        """Predict a single rating using the model"""
+    def predict(self, user_idx, item_idx, factors_to_use=None):
+        """Predict rating for user-item pair"""
         if factors_to_use is None:
             factors_to_use = self.n_factors
 
-        # Ensure we don't exceed available factors
         factors_to_use = min(factors_to_use, self.n_factors)
 
-        # Dot product of user and item factors (up to the specified number of factors)
-        pq = np.dot(self.user_factors[user][:factors_to_use], self.item_factors[item][:factors_to_use].T)
+        # Calculate prediction
+        pq = np.dot(self.user_factors[user_idx][:factors_to_use], self.item_factors[item_idx][:factors_to_use].T)
+        prediction = self.all_movies_mean + self.user_bias[user_idx] + self.item_bias[item_idx] + pq
 
-        # Add bias terms
-        prediction = self.all_movies_mean + self.user_bias[user] + self.item_bias[item] + pq
-
-        # Clip prediction to valid range using numpy
         return np.clip(prediction, 1, 10)
 
+    def predict_for_user(self, user_id, item_ids=None):
+        """Predict ratings for a user"""
+        if user_id not in self.user_id_to_index:
+            logger.warning(f"User {user_id} not in training data")
+            return {}
+
+        if item_ids is None:
+            item_ids = self.movie_ids
+
+        user_idx = self.user_id_to_index[user_id]
+        predictions = {}
+
+        for item_id in item_ids:
+            if item_id in self.item_id_to_index:
+                item_idx = self.item_id_to_index[item_id]
+                predictions[item_id] = self.predict(user_idx, item_idx)
+
+        return predictions
+
     def fit(self, train_data, test_data=None):
-        """Train the model on the given data array and evaluate on test data if provided"""
+        """Train the model"""
         self.initialize_factors(train_data)
 
-        # Convert data to a list for faster processing
+        # Convert to tuples for faster processing
         train_ratings = [(row['userId'], row['bggId'], row['rating']) for row in train_data]
-
-        # Convert test data if provided
         test_ratings = None
         if test_data is not None:
             test_ratings = [(row['userId'], row['bggId'], row['rating']) for row in test_data]
 
-        # Randomly shuffle the indices for SGD
-        index_randomized = random.sample(range(len(train_ratings)), len(train_ratings))
-
-        # Train one factor at a time
+        # Train each factor
         for factor in range(self.n_factors):
             iterations = 0
             last_err = float('inf')
@@ -102,10 +112,14 @@ class MatrixFactorization:
             test_err = float('inf')
             finished = False
 
-            while not finished:
-                iteration_err = self.stochastic_gradient_descent(factor, index_randomized, train_ratings)
+            # Shuffle indices for SGD
+            indices = random.sample(range(len(train_ratings)), len(train_ratings))
 
-                # Calculate test error if test data is provided
+            while not finished:
+                # Update model
+                iteration_err = self.update_factor(factor, indices, train_ratings)
+
+                # Calculate test error if available
                 if test_ratings:
                     test_err = self.calculate_rmse(test_ratings, factor)
                     logger.info(
@@ -115,7 +129,7 @@ class MatrixFactorization:
 
                 iterations += 1
 
-                # Check if training should stop
+                # Check stopping conditions
                 finished = self.finished(iterations, last_err, iteration_err, last_test_err, test_err)
                 last_err = iteration_err
                 last_test_err = test_err
@@ -131,36 +145,28 @@ class MatrixFactorization:
         self.save(self.n_factors - 1, True)
         return self
 
-    def stochastic_gradient_descent(self, factor, index_randomized, ratings):
-        """Update factors using stochastic gradient descent"""
-        lr = self.LearnRate
-        b_lr = self.BiasLearnRate
-        r = self.Regularization
-        bias_r = self.BiasReg
+    def update_factor(self, factor, indices, ratings):
+        """Update a factor using stochastic gradient descent"""
+        for idx in indices:
+            user_id, item_id, rating = ratings[idx]
 
-        for idx in index_randomized:
-            user_id, movie_id, rating = ratings[idx]
-
-            # Get mapped indices
             u = self.user_id_to_index[user_id]
-            i = self.item_id_to_index[movie_id]
+            i = self.item_id_to_index[item_id]
 
-            # Calculate prediction error
+            # Calculate error
             err = rating - self.predict(u, i, factor + 1)
 
             # Update bias terms
-            self.user_bias[u] += b_lr * (err - bias_r * self.user_bias[u])
-            self.item_bias[i] += b_lr * (err - bias_r * self.item_bias[i])
+            self.user_bias[u] += self.BiasLearnRate * (err - self.BiasReg * self.user_bias[u])
+            self.item_bias[i] += self.BiasLearnRate * (err - self.BiasReg * self.item_bias[i])
 
-            # Get current factor values
-            user_fac = self.user_factors[u][factor]
-            item_fac = self.item_factors[i][factor]
+            # Update factor values
+            u_factor = self.user_factors[u][factor]
+            i_factor = self.item_factors[i][factor]
 
-            # Update latent factors for this dimension
-            self.user_factors[u][factor] += lr * (err * item_fac - r * user_fac)
-            self.item_factors[i][factor] += lr * (err * user_fac - r * item_fac)
+            self.user_factors[u][factor] += self.LearnRate * (err * i_factor - self.Regularization * u_factor)
+            self.item_factors[i][factor] += self.LearnRate * (err * u_factor - self.Regularization * i_factor)
 
-        # Calculate RMSE for current iteration
         return self.calculate_rmse(ratings, factor)
 
     def finished(self, iterations, last_err, current_err, last_test_err=float('inf'), test_err=float('inf')):
@@ -186,53 +192,85 @@ class MatrixFactorization:
 
     def calculate_rmse(self, ratings, factor):
         """Calculate RMSE for given data"""
-        squared_errors = 0
-        count = 0
+        squared_sum = 0
+        count = len(ratings)
 
         for user_id, movie_id, rating in ratings:
             u = self.user_id_to_index[user_id]
             i = self.item_id_to_index[movie_id]
+            pred = self.predict(u, i, factor + 1)
+            squared_sum += (pred - rating) ** 2
 
-            prediction = self.predict(u, i, factor + 1)
-            squared_errors += (prediction - rating) ** 2
-            count += 1
-
-        return np.sqrt(squared_errors / count)
+        return np.sqrt(squared_sum / count)
 
     def save(self, factor, finished):
-        """Save the model to disk"""
-        pass  # save_path = self.save_path + '/model/'  # if not finished:  #     save_path += str(factor) + '/'  # else:  #     save_path += 'final/'  # Store final model in a separate directory  #  # ensure_dir(save_path)  #  # logger.info(f"Saving factors to {save_path}")  #  # # Convert indices back to original IDs for saving  # user_bias = {uid: self.user_bias[self.user_id_to_index[uid]] for uid in self.user_ids}  # item_bias = {iid: self.item_bias[self.item_id_to_index[iid]] for iid in self.movie_ids}  #  # # Save user factors, item factors and bias terms  # with open(save_path + 'user_factors.pkl', 'wb') as uf_file:  #     pickle.dump(self.user_factors, uf_file)  # with open(save_path + 'item_factors.pkl', 'wb') as if_file:  #     pickle.dump(self.item_factors, if_file)  # with open(save_path + 'user_bias.pkl', 'wb') as ub_file:  #     pickle.dump(user_bias, ub_file)  # with open(save_path + 'item_bias.pkl', 'wb') as ib_file:  #     pickle.dump(item_bias, ib_file)  # with open(save_path + 'metadata.pkl', 'wb') as meta_file:  #     metadata = {'u_inx': self.user_id_to_index, 'i_inx': self.item_id_to_index,  #                 'all_movies_mean': self.all_movies_mean, 'n_factors': self.n_factors, 'current_factor': factor}  #     pickle.dump(metadata, meta_file)
+        """Save model to disk"""
+        save_path = self.save_path + '/model/'
+        if not finished:
+            save_path += str(factor) + '/'
+        else:
+            save_path += 'final/'
 
+        ensure_dir(save_path)
+        logger.info(f"Saving model to {save_path}")
 
-def load_data(file_path):
-    """Load data from CSV file"""
-    data = np.loadtxt(file_path, delimiter=',', skiprows=1,
-                      dtype={'names': ('bggId', 'rating', 'userId'), 'formats': ('i4', 'f4', 'i4')})
-    return data
+        # Save model data
+        np.save(save_path + 'user_factors.npy', self.user_factors)
+        np.save(save_path + 'item_factors.npy', self.item_factors)
+        np.save(save_path + 'user_bias.npy', self.user_bias)
+        np.save(save_path + 'item_bias.npy', self.item_bias)
+
+        # Save user and item bias dictionaries
+        user_bias_dict = {uid: self.user_bias[self.user_id_to_index[uid]] for uid in self.user_ids}
+        item_bias_dict = {iid: self.item_bias[self.item_id_to_index[iid]] for iid in self.movie_ids}
+        np.save(save_path + 'user_bias_dict.npy', user_bias_dict)
+        np.save(save_path + 'item_bias_dict.npy', item_bias_dict)
+
+        # Save metadata
+        metadata = {'user_id_to_index': self.user_id_to_index, 'item_id_to_index': self.item_id_to_index,
+            'all_movies_mean': self.all_movies_mean, 'n_factors': self.n_factors, 'current_factor': factor,
+            'user_ids': self.user_ids, 'movie_ids': self.movie_ids}
+        np.save(save_path + 'metadata.npy', metadata)
+
+    def load(self, model_path):
+        """Load model from disk"""
+        logger.info(f"Loading model from {model_path}")
+
+        self.user_factors = np.load(model_path + 'user_factors.npy')
+        self.item_factors = np.load(model_path + 'item_factors.npy')
+        self.user_bias = np.load(model_path + 'user_bias.npy')
+        self.item_bias = np.load(model_path + 'item_bias.npy')
+
+        metadata = np.load(model_path + 'metadata.npy', allow_pickle=True).item()
+        self.user_id_to_index = metadata['user_id_to_index']
+        self.item_id_to_index = metadata['item_id_to_index']
+        self.all_movies_mean = metadata['all_movies_mean']
+        self.n_factors = metadata['n_factors']
+        self.user_ids = metadata['user_ids']
+        self.movie_ids = metadata['movie_ids']
+
+        return self
 
 
 def main():
+    """Run matrix factorization"""
     logger.info("[BEGIN] Calculating matrix factorization")
 
-    # Load train and test data from separate files
+    # Load data
     train_data = load_data('../data/processed/user_ratings_train_500K.csv')
     test_data = load_data('../data/processed/user_ratings_test_500K.csv')
 
-    logger.info(
-        f"Loaded {len(train_data)} training samples from {len(np.unique(train_data['userId']))} users on {len(np.unique(train_data['bggId']))} items")
-    logger.info(
-        f"Loaded {len(test_data)} test samples from {len(np.unique(test_data['userId']))} users on {len(np.unique(test_data['bggId']))} items")
+    logger.info(f"Training: {len(train_data)} samples from {len(np.unique(train_data['userId']))} users")
+    logger.info(f"Testing: {len(test_data)} samples from {len(np.unique(test_data['userId']))} users")
 
-    # Create and train model
-    model = MatrixFactorization(n_factors=20, max_iterations=15, save_path='./models/funk_svd/')
-
-    # Train model with train data and validate on test data
+    # Train model
+    model = MatrixFactorization(n_factors=20, max_iterations=15)
     model.fit(train_data, test_data)
 
-    # Calculate final RMSE on test data
-    final_test_rmse = model.calculate_rmse([(row['userId'], row['bggId'], row['rating']) for row in test_data],
-                                           model.n_factors - 1)
-    logger.info(f"Final Test RMSE: {final_test_rmse:.4f}")
+    # Final evaluation
+    test_tuples = [(row['userId'], row['bggId'], row['rating']) for row in test_data]
+    final_rmse = model.calculate_rmse(test_tuples, model.n_factors - 1)
+    logger.info(f"Final Test RMSE: {final_rmse:.4f}")
 
     logger.info("[DONE] Calculating matrix factorization")
 
