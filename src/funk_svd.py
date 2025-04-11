@@ -3,26 +3,22 @@ import random
 import numpy as np
 from loguru import logger
 
-from src.utils.utils import load_data, ensure_dir
+from src.utils.utils import ensure_dir
 
 
-class MatrixFactorization:
-    Regularization = 0.002
-    LearnRate = 0.002
-    BiasLearnRate = 0.005
-    BiasReg = 0.002
+class FunkSVD:
 
-    def __init__(self, save_path='./models/funk_svd/', n_factors=20, max_iterations=15, stop_threshold=0.005,
+    def __init__(self, save_path='./models/funk_svd/', n_factors=20, max_iterations=10, stop_threshold=0.005,
                  learn_rate=0.002, bias_learn_rate=0.005, regularization=0.002, bias_reg=0.002):
         # Model parameters
         self.save_path = save_path
         self.n_factors = n_factors
-        self.MAX_ITERATIONS = max_iterations
+        self.max_iterations = max_iterations
         self.stop_threshold = stop_threshold
-        self.LearnRate = learn_rate
-        self.BiasLearnRate = bias_learn_rate
-        self.Regularization = regularization
-        self.BiasReg = bias_reg
+        self.learn_rate = learn_rate
+        self.bias_learn_rate = bias_learn_rate
+        self.regularization = regularization
+        self.bias_reg = bias_reg
 
         # Model state
         self.user_factors = None
@@ -34,11 +30,11 @@ class MatrixFactorization:
         self.item_id_to_index = None
         self.user_ids = None
         self.movie_ids = None
-        self.iterations = 0
 
         # For reproducibility
         random.seed(42)
-        ensure_dir(save_path)
+        if self.save_path:
+            ensure_dir(self.save_path)
 
     def initialize_factors(self, data):
         """Initialize model parameters"""
@@ -63,10 +59,7 @@ class MatrixFactorization:
 
     def predict(self, user_idx, item_idx, factors_to_use=None):
         """Predict rating for user-item pair"""
-        if factors_to_use is None:
-            factors_to_use = self.n_factors
-
-        factors_to_use = min(factors_to_use, self.n_factors)
+        factors_to_use = self.n_factors if factors_to_use is None else min(factors_to_use, self.n_factors)
 
         # Calculate prediction
         pq = np.dot(self.user_factors[user_idx][:factors_to_use], self.item_factors[item_idx][:factors_to_use].T)
@@ -107,7 +100,6 @@ class MatrixFactorization:
         for factor in range(self.n_factors):
             iterations = 0
             last_err = float('inf')
-            iteration_err = float('inf')
             last_test_err = float('inf')
             test_err = float('inf')
             finished = False
@@ -135,11 +127,6 @@ class MatrixFactorization:
                 last_test_err = test_err
 
             self.save(factor, finished)
-            if test_ratings:
-                logger.info(
-                    f"Completed factor {factor} after {iterations} iterations with Train RMSE {iteration_err:.4f}, Test RMSE {test_err:.4f}")
-            else:
-                logger.info(f"Completed factor {factor} after {iterations} iterations with RMSE {iteration_err:.4f}")
 
         # Save final model
         self.save(self.n_factors - 1, True)
@@ -157,24 +144,23 @@ class MatrixFactorization:
             err = rating - self.predict(u, i, factor + 1)
 
             # Update bias terms
-            self.user_bias[u] += self.BiasLearnRate * (err - self.BiasReg * self.user_bias[u])
-            self.item_bias[i] += self.BiasLearnRate * (err - self.BiasReg * self.item_bias[i])
+            self.user_bias[u] += self.bias_learn_rate * (err - self.bias_reg * self.user_bias[u])
+            self.item_bias[i] += self.bias_learn_rate * (err - self.bias_reg * self.item_bias[i])
 
             # Update factor values
             u_factor = self.user_factors[u][factor]
             i_factor = self.item_factors[i][factor]
 
-            self.user_factors[u][factor] += self.LearnRate * (err * i_factor - self.Regularization * u_factor)
-            self.item_factors[i][factor] += self.LearnRate * (err * u_factor - self.Regularization * i_factor)
+            self.user_factors[u][factor] += self.learn_rate * (err * i_factor - self.regularization * u_factor)
+            self.item_factors[i][factor] += self.learn_rate * (err * u_factor - self.regularization * i_factor)
 
         return self.calculate_rmse(ratings, factor)
 
     def finished(self, iterations, last_err, current_err, last_test_err=float('inf'), test_err=float('inf')):
         """Determine if training should stop based on convergence or test error increase"""
-        self.iterations += 1
 
         # Check max iterations
-        if iterations >= self.MAX_ITERATIONS:
+        if iterations >= self.max_iterations:
             logger.info(f'Finished training: reached max iterations ({iterations})')
             return True
 
@@ -203,44 +189,49 @@ class MatrixFactorization:
 
         return np.sqrt(squared_sum / count)
 
-    def save(self, factor, finished):
-        """Save model to disk"""
-        save_path = self.save_path + '/model/'
-        if not finished:
-            save_path += str(factor) + '/'
-        else:
-            save_path += 'final/'
 
+    def save(self, factor, finished):
+        """Save model to disk, unless save_path is None"""
+        if self.save_path is None:
+            return
+
+        # Simplified path management
+        save_path = self.save_path + '/model/'
+        save_path += 'final/' if finished else f'{factor}/'
         ensure_dir(save_path)
+
         logger.info(f"Saving model to {save_path}")
 
-        # Save model data
+        # Save essential model data
         np.save(save_path + 'user_factors.npy', self.user_factors)
         np.save(save_path + 'item_factors.npy', self.item_factors)
         np.save(save_path + 'user_bias.npy', self.user_bias)
         np.save(save_path + 'item_bias.npy', self.item_bias)
 
-        # Save user and item bias dictionaries
-        user_bias_dict = {uid: self.user_bias[self.user_id_to_index[uid]] for uid in self.user_ids}
-        item_bias_dict = {iid: self.item_bias[self.item_id_to_index[iid]] for iid in self.movie_ids}
-        np.save(save_path + 'user_bias_dict.npy', user_bias_dict)
-        np.save(save_path + 'item_bias_dict.npy', item_bias_dict)
-
-        # Save metadata
-        metadata = {'user_id_to_index': self.user_id_to_index, 'item_id_to_index': self.item_id_to_index,
-            'all_movies_mean': self.all_movies_mean, 'n_factors': self.n_factors, 'current_factor': factor,
-            'user_ids': self.user_ids, 'movie_ids': self.movie_ids}
+        # Save minimal metadata in one file
+        metadata = {
+            'user_id_to_index': self.user_id_to_index,
+            'item_id_to_index': self.item_id_to_index,
+            'all_movies_mean': self.all_movies_mean,
+            'n_factors': self.n_factors,
+            'current_factor': factor,
+            'user_ids': self.user_ids,
+            'movie_ids': self.movie_ids
+        }
         np.save(save_path + 'metadata.npy', metadata)
+
 
     def load(self, model_path):
         """Load model from disk"""
         logger.info(f"Loading model from {model_path}")
 
+        # Load essential model data
         self.user_factors = np.load(model_path + 'user_factors.npy')
         self.item_factors = np.load(model_path + 'item_factors.npy')
         self.user_bias = np.load(model_path + 'user_bias.npy')
         self.item_bias = np.load(model_path + 'item_bias.npy')
 
+        # Load metadata
         metadata = np.load(model_path + 'metadata.npy', allow_pickle=True).item()
         self.user_id_to_index = metadata['user_id_to_index']
         self.item_id_to_index = metadata['item_id_to_index']
@@ -250,30 +241,3 @@ class MatrixFactorization:
         self.movie_ids = metadata['movie_ids']
 
         return self
-
-
-def main():
-    """Run matrix factorization"""
-    logger.info("[BEGIN] Calculating matrix factorization")
-
-    # Load data
-    train_data = load_data('../data/processed/user_ratings_train_500K.csv')
-    test_data = load_data('../data/processed/user_ratings_test_500K.csv')
-
-    logger.info(f"Training: {len(train_data)} samples from {len(np.unique(train_data['userId']))} users")
-    logger.info(f"Testing: {len(test_data)} samples from {len(np.unique(test_data['userId']))} users")
-
-    # Train model
-    model = MatrixFactorization(n_factors=20, max_iterations=15)
-    model.fit(train_data, test_data)
-
-    # Final evaluation
-    test_tuples = [(row['userId'], row['bggId'], row['rating']) for row in test_data]
-    final_rmse = model.calculate_rmse(test_tuples, model.n_factors - 1)
-    logger.info(f"Final Test RMSE: {final_rmse:.4f}")
-
-    logger.info("[DONE] Calculating matrix factorization")
-
-
-if __name__ == "__main__":
-    main()
