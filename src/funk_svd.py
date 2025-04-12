@@ -1,37 +1,37 @@
-import os
 import random
+from pathlib import Path
 
 import numpy as np
 from loguru import logger
 
+from src.config import FUNK_SVD_CONFIG
 from src.utils.utils import ensure_dir
 
 
 class FunkSVD:
+    def __init__(self, **kwargs):
+        params = FUNK_SVD_CONFIG.copy()
+        params.update(kwargs)
 
-    def __init__(self, save_path='./models/funk_svd/', load_existing_model=False, n_factors=20, max_iterations=10,
-                 stop_threshold=0.005, learn_rate=0.002, bias_learn_rate=0.005, regularization=0.002, bias_reg=0.002):
-        # Model parameters
-        self.save_path = save_path
-        self.n_factors = n_factors
-        self.max_iterations = max_iterations
-        self.stop_threshold = stop_threshold
-        self.learn_rate = learn_rate
-        self.bias_learn_rate = bias_learn_rate
-        self.regularization = regularization
-        self.bias_reg = bias_reg
-        self.load_existing_model = load_existing_model
+        self.save_path = params['save_path']
+        self.n_factors = params['n_factors']
+        self.max_iterations = params['max_iterations']
+        self.stop_threshold = params['stop_threshold']
+        self.learn_rate = params['learn_rate']
+        self.bias_learn_rate = params['bias_learn_rate']
+        self.regularization = params['regularization']
+        self.bias_reg = params['bias_reg']
 
         # Model state
-        self.user_factors = None
-        self.item_factors = None
+        self.global_mean = 0
         self.user_bias = None
         self.item_bias = None
-        self.global_mean = 0.0
-        self.user_id_to_idx = None
-        self.item_id_to_idx = None
-        self.user_ids = None
-        self.item_ids = None
+        self.user_factors = None
+        self.item_factors = None
+        self.user_id_to_idx = {}
+        self.item_id_to_idx = {}
+        self.user_ids = []
+        self.item_ids = []
 
         # For reproducibility
         random.seed(42)
@@ -90,14 +90,6 @@ class FunkSVD:
 
     def fit(self, train_data, test_data=None):
         """Train the model"""
-        # Try to load existing model if requested
-        if self.load_existing_model and self.save_path:
-            model_path = self.save_path + '/model/final/'
-            if os.path.exists(model_path) and os.path.isfile(model_path + 'metadata.npy'):
-                logger.info(f"Found existing model at {model_path}, loading instead of training")
-                self.load(model_path)
-                return self
-
         self.initialize_factors(train_data)
 
         # Convert to tuples for faster processing
@@ -204,37 +196,42 @@ class FunkSVD:
         if self.save_path is None:
             return
 
-        # Simplified path management
-        save_path = self.save_path + '/model/'
-        save_path += 'final/' if finished else f'{factor_idx}/'
-        ensure_dir(save_path)
+        save_path = Path(self.save_path) / 'model'
+        if finished:
+            save_path = save_path / 'final'
+        else:
+            save_path = save_path / str(factor_idx)
+
+        save_path.mkdir(parents=True, exist_ok=True)
 
         logger.info(f"Saving model to {save_path}")
 
         # Save essential model data
-        np.save(save_path + 'user_factors.npy', self.user_factors)
-        np.save(save_path + 'item_factors.npy', self.item_factors)
-        np.save(save_path + 'user_bias.npy', self.user_bias)
-        np.save(save_path + 'item_bias.npy', self.item_bias)
+        np.save(save_path / 'user_factors.npy', self.user_factors)
+        np.save(save_path / 'item_factors.npy', self.item_factors)
+        np.save(save_path / 'user_bias.npy', self.user_bias)
+        np.save(save_path / 'item_bias.npy', self.item_bias)
 
         # Save minimal metadata in one file
         metadata = {'user_id_to_idx': self.user_id_to_idx, 'item_id_to_idx': self.item_id_to_idx,
-            'global_mean': self.global_mean, 'n_factors': self.n_factors, 'current_factor': factor_idx,
-            'user_ids': self.user_ids, 'item_ids': self.item_ids}
-        np.save(save_path + 'metadata.npy', metadata)
+                    'global_mean': self.global_mean, 'n_factors': self.n_factors, 'current_factor': factor_idx,
+                    'user_ids': self.user_ids, 'item_ids': self.item_ids}
+        np.save(save_path / 'metadata.npy', metadata)
 
     def load(self, model_path):
         """Load model from disk"""
+        # Convert string path to Path object if needed
+        model_path = Path(model_path)
         logger.info(f"Loading model from {model_path}")
 
         # Load essential model data
-        self.user_factors = np.load(model_path + 'user_factors.npy')
-        self.item_factors = np.load(model_path + 'item_factors.npy')
-        self.user_bias = np.load(model_path + 'user_bias.npy')
-        self.item_bias = np.load(model_path + 'item_bias.npy')
+        self.user_factors = np.load(model_path / 'user_factors.npy')
+        self.item_factors = np.load(model_path / 'item_factors.npy')
+        self.user_bias = np.load(model_path / 'user_bias.npy')
+        self.item_bias = np.load(model_path / 'item_bias.npy')
 
         # Load metadata
-        metadata = np.load(model_path + 'metadata.npy', allow_pickle=True).item()
+        metadata = np.load(model_path / 'metadata.npy', allow_pickle=True).item()
         self.user_id_to_idx = metadata['user_id_to_idx']
         self.item_id_to_idx = metadata['item_id_to_idx']
         self.global_mean = metadata['global_mean']

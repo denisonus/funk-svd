@@ -1,3 +1,5 @@
 numpy
 loguru
 pandas
+matplotlib
+seaborn

@@ -5,12 +5,13 @@ from pathlib import Path
 
 from loguru import logger
 
+from src.config import GRID_SEARCH_CONFIG
 from src.funk_svd import FunkSVD
-from src.utils.utils import ensure_dir, load_data
+from src.utils.utils import ensure_dir, get_train_data, get_test_data
 
 
 class FunkSVDGridSearch:
-    def __init__(self, param_grid, save_path='./models/grid_search/', load_results=True):
+    def __init__(self, param_grid, save_path, load_results):
         self.param_grid = param_grid
         self.save_path = Path(save_path)
         self.results = []
@@ -24,7 +25,6 @@ class FunkSVDGridSearch:
                 logger.info(f"Loaded {len(self.results)} existing results")
             except Exception as e:
                 logger.warning(f"Failed to load existing results: {e}")
-
 
     def fit(self, train_data, test_data):
         # Generate all parameter combinations
@@ -58,12 +58,7 @@ class FunkSVDGridSearch:
             train_time = time.time() - start_time
 
             # Record result
-            result = {
-                'run_id': run_id,
-                'params': params,
-                'rmse': final_rmse,
-                'training_time': train_time
-            }
+            result = {'run_id': run_id, 'params': params, 'rmse': final_rmse, 'training_time': train_time}
             self.results.append(result)
 
             # Update the best parameters if improved
@@ -81,26 +76,20 @@ class FunkSVDGridSearch:
         return best_params
 
 
-def run_grid_search(load_previous_results=True):
+def run_grid_search(load_previous_results):
     # Load data
-    train_data = load_data('../data/processed/user_ratings_train_100K.csv')
-    test_data = load_data('../data/processed/user_ratings_test_100K.csv')
+    train_data = get_train_data()
+    test_data = get_test_data()
 
-    # Define parameter grid
-    param_grid = {
-        'n_factors': [10, 20],
-        'learn_rate': [0.005, 0.01],
-        'bias_learn_rate': [0.01, 0.02],
-        'regularization': [0.01, 0.05],
-        'bias_reg': [0.02, 0.1],
-        'save_path': [None]
-    }
+    # Use parameters from config
+    param_grid = GRID_SEARCH_CONFIG['param_grid']
+    save_path = GRID_SEARCH_CONFIG['save_path']
 
     # Run grid search
-    grid_search = FunkSVDGridSearch(param_grid, load_results=load_previous_results)
+    grid_search = FunkSVDGridSearch(param_grid, save_path=save_path, load_results=load_previous_results)
     return grid_search.fit(train_data, test_data)
 
 
 if __name__ == "__main__":
-    grid_search_best_params = run_grid_search(load_previous_results=False)
+    grid_search_best_params = run_grid_search(load_previous_results=True)
     logger.info(f"Best parameters: {grid_search_best_params}")
