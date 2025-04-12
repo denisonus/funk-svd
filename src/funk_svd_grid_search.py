@@ -53,7 +53,7 @@ class FunkSVDGridSearch:
             model = FunkSVD(**params)
             model.fit(train_data, test_data)
 
-            test_tuples = [(row['userId'], row['bggId'], row['rating']) for row in test_data]
+            test_tuples = [(row['UserId'], row['BggId'], row['Rating']) for row in test_data]
             final_rmse = model.calculate_rmse(test_tuples, model.n_factors - 1)
             train_time = time.time() - start_time
 

@@ -39,8 +39,8 @@ class FunkSVD:
     def initialize_factors(self, data):
         """Initialize model parameters"""
         # Extract unique IDs
-        self.user_ids = list(np.unique(data['userId']))
-        self.item_ids = list(np.unique(data['bggId']))
+        self.user_ids = list(np.unique(data['UserId']))
+        self.item_ids = list(np.unique(data['BggId']))
 
         # Create mappings
         self.user_id_to_idx = {uid: idx for idx, uid in enumerate(self.user_ids)}
@@ -55,7 +55,7 @@ class FunkSVD:
         self.item_bias = np.zeros(n_items)
 
         # Calculate global mean
-        self.global_mean = np.mean(data['rating'])
+        self.global_mean = np.mean(data['Rating'])
 
     def predict(self, user_idx, item_idx, factors_to_use=None):
         """Predict rating for user-item pair"""
@@ -91,10 +91,10 @@ class FunkSVD:
         self.initialize_factors(train_data)
 
         # Convert to tuples for faster processing
-        train_ratings = [(row['userId'], row['bggId'], row['rating']) for row in train_data]
+        train_ratings = [(row['UserId'], row['BggId'], row['Rating']) for row in train_data]
         test_ratings = None
         if test_data is not None:
-            test_ratings = [(row['userId'], row['bggId'], row['rating']) for row in test_data]
+            test_ratings = [(row['UserId'], row['BggId'], row['Rating']) for row in test_data]
 
         # Train each factor
         for factor in range(self.n_factors):
