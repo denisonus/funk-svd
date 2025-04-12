@@ -25,11 +25,11 @@ class FunkSVD:
         self.item_factors = None
         self.user_bias = None
         self.item_bias = None
-        self.all_movies_mean = 0.0
-        self.user_id_to_index = None
-        self.item_id_to_index = None
+        self.global_mean = 0.0
+        self.user_id_to_idx = None
+        self.item_id_to_idx = None
         self.user_ids = None
-        self.movie_ids = None
+        self.item_ids = None
 
         # For reproducibility
         random.seed(42)
@@ -40,22 +40,22 @@ class FunkSVD:
         """Initialize model parameters"""
         # Extract unique IDs
         self.user_ids = list(np.unique(data['userId']))
-        self.movie_ids = list(np.unique(data['bggId']))
+        self.item_ids = list(np.unique(data['bggId']))
 
         # Create mappings
-        self.user_id_to_index = {uid: idx for idx, uid in enumerate(self.user_ids)}
-        self.item_id_to_index = {mid: idx for idx, mid in enumerate(self.movie_ids)}
+        self.user_id_to_idx = {uid: idx for idx, uid in enumerate(self.user_ids)}
+        self.item_id_to_idx = {mid: idx for idx, mid in enumerate(self.item_ids)}
 
         # Initialize factors and bias terms
-        n_users = len(self.user_id_to_index)
-        n_items = len(self.item_id_to_index)
+        n_users = len(self.user_id_to_idx)
+        n_items = len(self.item_id_to_idx)
         self.user_factors = np.full((n_users, self.n_factors), 0.1)
         self.item_factors = np.full((n_items, self.n_factors), 0.1)
         self.user_bias = np.zeros(n_users)
         self.item_bias = np.zeros(n_items)
 
         # Calculate global mean
-        self.all_movies_mean = np.mean(data['rating'])
+        self.global_mean = np.mean(data['rating'])
 
     def predict(self, user_idx, item_idx, factors_to_use=None):
         """Predict rating for user-item pair"""
@@ -63,25 +63,25 @@ class FunkSVD:
 
         # Calculate prediction
         pq = np.dot(self.user_factors[user_idx][:factors_to_use], self.item_factors[item_idx][:factors_to_use].T)
-        prediction = self.all_movies_mean + self.user_bias[user_idx] + self.item_bias[item_idx] + pq
+        prediction = self.global_mean + self.user_bias[user_idx] + self.item_bias[item_idx] + pq
 
         return np.clip(prediction, 1, 10)
 
     def predict_for_user(self, user_id, item_ids=None):
         """Predict ratings for a user"""
-        if user_id not in self.user_id_to_index:
+        if user_id not in self.user_id_to_idx:
             logger.warning(f"User {user_id} not in training data")
             return {}
 
         if item_ids is None:
-            item_ids = self.movie_ids
+            item_ids = self.item_ids
 
-        user_idx = self.user_id_to_index[user_id]
+        user_idx = self.user_id_to_idx[user_id]
         predictions = {}
 
         for item_id in item_ids:
-            if item_id in self.item_id_to_index:
-                item_idx = self.item_id_to_index[item_id]
+            if item_id in self.item_id_to_idx:
+                item_idx = self.item_id_to_idx[item_id]
                 predictions[item_id] = self.predict(user_idx, item_idx)
 
         return predictions
@@ -99,7 +99,7 @@ class FunkSVD:
         # Train each factor
         for factor in range(self.n_factors):
             iterations = 0
-            last_err = float('inf')
+            last_train_rmse = float('inf')
             last_test_err = float('inf')
             test_err = float('inf')
             finished = False
@@ -109,21 +109,21 @@ class FunkSVD:
 
             while not finished:
                 # Update model
-                iteration_err = self.update_factor(factor, indices, train_ratings)
+                train_rmse = self.update_factor(factor, indices, train_ratings)
 
                 # Calculate test error if available
                 if test_ratings:
                     test_err = self.calculate_rmse(test_ratings, factor)
                     logger.info(
-                        f"Epoch {iterations}, factor={factor}, Train RMSE={iteration_err:.4f}, Test RMSE={test_err:.4f}")
+                        f"Epoch {iterations}, factor={factor}, Train RMSE={train_rmse:.4f}, Test RMSE={test_err:.4f}")
                 else:
-                    logger.info(f"Epoch {iterations}, factor={factor}, Train RMSE={iteration_err:.4f}")
+                    logger.info(f"Epoch {iterations}, factor={factor}, Train RMSE={train_rmse:.4f}")
 
                 iterations += 1
 
                 # Check stopping conditions
-                finished = self.finished(iterations, last_err, iteration_err, last_test_err, test_err)
-                last_err = iteration_err
+                finished = self.finished(iterations, last_train_rmse, train_rmse, last_test_err, test_err)
+                last_train_rmse = train_rmse
                 last_test_err = test_err
 
             self.save(factor, finished)
@@ -132,29 +132,29 @@ class FunkSVD:
         self.save(self.n_factors - 1, True)
         return self
 
-    def update_factor(self, factor, indices, ratings):
+    def update_factor(self, factor_idx, indices, ratings):
         """Update a factor using stochastic gradient descent"""
         for idx in indices:
             user_id, item_id, rating = ratings[idx]
 
-            u = self.user_id_to_index[user_id]
-            i = self.item_id_to_index[item_id]
+            u = self.user_id_to_idx[user_id]
+            i = self.item_id_to_idx[item_id]
 
             # Calculate error
-            err = rating - self.predict(u, i, factor + 1)
+            err = rating - self.predict(u, i, factor_idx + 1)
 
             # Update bias terms
             self.user_bias[u] += self.bias_learn_rate * (err - self.bias_reg * self.user_bias[u])
             self.item_bias[i] += self.bias_learn_rate * (err - self.bias_reg * self.item_bias[i])
 
             # Update factor values
-            u_factor = self.user_factors[u][factor]
-            i_factor = self.item_factors[i][factor]
+            u_factor = self.user_factors[u][factor_idx]
+            i_factor = self.item_factors[i][factor_idx]
 
-            self.user_factors[u][factor] += self.learn_rate * (err * i_factor - self.regularization * u_factor)
-            self.item_factors[i][factor] += self.learn_rate * (err * u_factor - self.regularization * i_factor)
+            self.user_factors[u][factor_idx] += self.learn_rate * (err * i_factor - self.regularization * u_factor)
+            self.item_factors[i][factor_idx] += self.learn_rate * (err * u_factor - self.regularization * i_factor)
 
-        return self.calculate_rmse(ratings, factor)
+        return self.calculate_rmse(ratings, factor_idx)
 
     def finished(self, iterations, last_err, current_err, last_test_err=float('inf'), test_err=float('inf')):
         """Determine if training should stop based on convergence or test error increase"""
@@ -176,28 +176,28 @@ class FunkSVD:
 
         return False
 
-    def calculate_rmse(self, ratings, factor):
+    def calculate_rmse(self, ratings, factor_idx):
         """Calculate RMSE for given data"""
         squared_sum = 0
         count = len(ratings)
 
         for user_id, movie_id, rating in ratings:
-            u = self.user_id_to_index[user_id]
-            i = self.item_id_to_index[movie_id]
-            pred = self.predict(u, i, factor + 1)
+            u = self.user_id_to_idx[user_id]
+            i = self.item_id_to_idx[movie_id]
+            pred = self.predict(u, i, factor_idx + 1)
             squared_sum += (pred - rating) ** 2
 
         return np.sqrt(squared_sum / count)
 
 
-    def save(self, factor, finished):
+    def save(self, factor_idx, finished):
         """Save model to disk, unless save_path is None"""
         if self.save_path is None:
             return
 
         # Simplified path management
         save_path = self.save_path + '/model/'
-        save_path += 'final/' if finished else f'{factor}/'
+        save_path += 'final/' if finished else f'{factor_idx}/'
         ensure_dir(save_path)
 
         logger.info(f"Saving model to {save_path}")
@@ -210,13 +210,13 @@ class FunkSVD:
 
         # Save minimal metadata in one file
         metadata = {
-            'user_id_to_index': self.user_id_to_index,
-            'item_id_to_index': self.item_id_to_index,
-            'all_movies_mean': self.all_movies_mean,
+            'user_id_to_idx': self.user_id_to_idx,
+            'item_id_to_idx': self.item_id_to_idx,
+            'global_mean': self.global_mean,
             'n_factors': self.n_factors,
-            'current_factor': factor,
+            'current_factor': factor_idx,
             'user_ids': self.user_ids,
-            'movie_ids': self.movie_ids
+            'item_ids': self.item_ids
         }
         np.save(save_path + 'metadata.npy', metadata)
 
@@ -233,11 +233,11 @@ class FunkSVD:
 
         # Load metadata
         metadata = np.load(model_path + 'metadata.npy', allow_pickle=True).item()
-        self.user_id_to_index = metadata['user_id_to_index']
-        self.item_id_to_index = metadata['item_id_to_index']
-        self.all_movies_mean = metadata['all_movies_mean']
+        self.user_id_to_idx = metadata['item_id_to_idx']
+        self.item_id_to_idx = metadata['item_id_to_idx']
+        self.global_mean = metadata['global_mean']
         self.n_factors = metadata['n_factors']
         self.user_ids = metadata['user_ids']
-        self.movie_ids = metadata['movie_ids']
+        self.item_ids = metadata['item_ids']
 
         return self
