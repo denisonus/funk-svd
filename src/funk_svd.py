@@ -1,3 +1,4 @@
+import os
 import random
 
 import numpy as np
@@ -8,8 +9,8 @@ from src.utils.utils import ensure_dir
 
 class FunkSVD:
 
-    def __init__(self, save_path='./models/funk_svd/', n_factors=20, max_iterations=10, stop_threshold=0.005,
-                 learn_rate=0.002, bias_learn_rate=0.005, regularization=0.002, bias_reg=0.002):
+    def __init__(self, save_path='./models/funk_svd/', load_existing_model=False, n_factors=20, max_iterations=10,
+                 stop_threshold=0.005, learn_rate=0.002, bias_learn_rate=0.005, regularization=0.002, bias_reg=0.002):
         # Model parameters
         self.save_path = save_path
         self.n_factors = n_factors
@@ -19,6 +20,7 @@ class FunkSVD:
         self.bias_learn_rate = bias_learn_rate
         self.regularization = regularization
         self.bias_reg = bias_reg
+        self.load_existing_model = load_existing_model
 
         # Model state
         self.user_factors = None
@@ -88,6 +90,14 @@ class FunkSVD:
 
     def fit(self, train_data, test_data=None):
         """Train the model"""
+        # Try to load existing model if requested
+        if self.load_existing_model and self.save_path:
+            model_path = self.save_path + '/model/final/'
+            if os.path.exists(model_path) and os.path.isfile(model_path + 'metadata.npy'):
+                logger.info(f"Found existing model at {model_path}, loading instead of training")
+                self.load(model_path)
+                return self
+
         self.initialize_factors(train_data)
 
         # Convert to tuples for faster processing
@@ -189,7 +199,6 @@ class FunkSVD:
 
         return np.sqrt(squared_sum / count)
 
-
     def save(self, factor_idx, finished):
         """Save model to disk, unless save_path is None"""
         if self.save_path is None:
@@ -209,17 +218,10 @@ class FunkSVD:
         np.save(save_path + 'item_bias.npy', self.item_bias)
 
         # Save minimal metadata in one file
-        metadata = {
-            'user_id_to_idx': self.user_id_to_idx,
-            'item_id_to_idx': self.item_id_to_idx,
-            'global_mean': self.global_mean,
-            'n_factors': self.n_factors,
-            'current_factor': factor_idx,
-            'user_ids': self.user_ids,
-            'item_ids': self.item_ids
-        }
+        metadata = {'user_id_to_idx': self.user_id_to_idx, 'item_id_to_idx': self.item_id_to_idx,
+            'global_mean': self.global_mean, 'n_factors': self.n_factors, 'current_factor': factor_idx,
+            'user_ids': self.user_ids, 'item_ids': self.item_ids}
         np.save(save_path + 'metadata.npy', metadata)
-
 
     def load(self, model_path):
         """Load model from disk"""
@@ -233,7 +235,7 @@ class FunkSVD:
 
         # Load metadata
         metadata = np.load(model_path + 'metadata.npy', allow_pickle=True).item()
-        self.user_id_to_idx = metadata['item_id_to_idx']
+        self.user_id_to_idx = metadata['user_id_to_idx']
         self.item_id_to_idx = metadata['item_id_to_idx']
         self.global_mean = metadata['global_mean']
         self.n_factors = metadata['n_factors']

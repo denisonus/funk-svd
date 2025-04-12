@@ -15,7 +15,7 @@ def main():
     logger.info(f"Testing: {len(test_data)} samples from {len(np.unique(test_data['UserId']))} users")
 
     # Train model
-    model = FunkSVD(save_path=None)
+    model = FunkSVD(load_existing_model=True)
     model.fit(train_data, test_data)
 
     # Final evaluation
