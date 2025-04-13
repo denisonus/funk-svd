@@ -1,22 +1,37 @@
 import numpy as np
+import pandas as pd
 
+from src.config import GAMES_DATA_PATH
 from src.funk_svd import FunkSVD
 
 
 class GameRecommender:
-    def __init__(self, model_path=None, train_data=None):
+    def __init__(self, model_path=None, train_data=None, games_data_path=None):
         self.model = FunkSVD()
-        self.train_data = train_data  # Store for filtering recommendations
+        self.train_data = train_data
+        self.games_data = None
+
+        # Load games data if path provided
+        if games_data_path:
+            self.load_games_data(games_data_path)
 
         if model_path:
             self.model.load(model_path)
 
     def get_predictions(self, user_id, item_ids=None):
-        """Get predictions for specific user and items"""
+        """Get predictions for a user for specific items"""
         return self.model.predict_for_user(user_id, item_ids)
 
-    def get_top_n_recommendations(self, user_id, n=10, include_scores=True):
-        """Get top N recommendations for a user without requiring train_data parameter"""
+    def load_games_data(self, games_data_path=None):
+        """Load game information from CSV file"""
+        path = games_data_path or GAMES_DATA_PATH
+        games_df = pd.read_csv(path)
+        # Create dictionary for fast lookup by BggId
+        self.games_data = {int(row['BGGId']): row.to_dict() for _, row in games_df.iterrows()}
+        return self
+
+    def get_recommendations(self, user_id, n=10, attributes=None):
+        """Get top N recommendations for a user with specified game attributes."""
         if self.train_data is None or len(self.train_data) == 0:
             raise ValueError("Train data is required for filtering recommendations")
 
@@ -26,16 +41,31 @@ class GameRecommender:
         # Filter out already rated items
         rated_items = set(item['BggId'] for item in self.train_data if item['UserId'] == user_id)
         predictions = {item_id: rating for item_id, rating in predictions.items()
-                       if item_id not in rated_items}
+                      if item_id not in rated_items}
 
-        # Sort and return top N
+        # Sort and get top N
         sorted_predictions = sorted(predictions.items(), key=lambda x: x[1], reverse=True)[:n]
-
-        # Return with or without scores
-        if include_scores:
-            return sorted_predictions
-        else:
-            return [item_id for item_id, _ in sorted_predictions]
+        
+        # Build recommendation list
+        recommendations = []
+        for item_id, rating in sorted_predictions:
+            item_id = int(item_id)
+            rec = {
+                'BggId': item_id,
+                'PredictedRating': rating
+            }
+            
+            # Add requested game attributes if available
+            if attributes and self.games_data:
+                if item_id in self.games_data:
+                    game_info = self.games_data[item_id]
+                    for attr in attributes:
+                        if attr in game_info:
+                            rec[attr] = game_info[attr]
+            
+            recommendations.append(rec)
+            
+        return recommendations
 
     def train(self, train_data, test_data=None, **kwargs):
         """Train the model with optional parameters"""
