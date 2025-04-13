@@ -240,3 +240,155 @@ class FunkSVD:
         self.item_ids = metadata['item_ids']
 
         return self
+
+    def add_new_user(self, ratings, user_id=None):
+        """
+        Add a new user to the model with their ratings.
+        
+        Parameters:
+        -----------
+        ratings : list of dict
+            List of ratings from the user, each containing 'BggId' and 'Rating' keys
+        user_id : int, optional
+            The ID of the new user. If None, a new ID will be generated.
+            
+        Returns:
+        --------
+        tuple
+            (success, user_id) where success is True if user was added, 
+            False if the user already existed, and user_id is the ID of the user
+        """
+        # Generate new user ID if not provided
+        if user_id is None:
+            # Find the max user ID and add 1
+            user_id = max(self.user_ids) + 1 if self.user_ids else 1
+            logger.info(f"Generated new user ID: {user_id}")
+        
+        # Check if user already exists
+        if user_id in self.user_id_to_idx:
+            logger.info(f"User {user_id} already exists in the model")
+            return False, user_id
+            
+        # Add user to mappings
+        user_idx = len(self.user_ids)
+        self.user_ids.append(user_id)
+        self.user_id_to_idx[user_id] = user_idx
+        
+        # Extend user factors and bias arrays
+        self.user_factors = np.vstack([self.user_factors, np.full((1, self.n_factors), 0.1)])
+        self.user_bias = np.append(self.user_bias, 0)
+        
+        # Learn factors for the new user based on their ratings
+        self._learn_user_factors(user_idx, ratings)
+        
+        logger.info(f"Added new user {user_id} with {len(ratings)} ratings")
+        return True, user_id
+
+    def add_ratings(self, ratings, user_id=None):
+        """
+        Add ratings from either a new or existing user to the model.
+        
+        Parameters:
+        -----------
+        ratings : list of dict
+            List of ratings, each containing 'BggId' and 'Rating' keys
+        user_id : int, optional
+            The ID of the user. If None, a new ID will be generated.
+            
+        Returns:
+        --------
+        tuple
+            (success, user_id, is_new_user) where:
+            - success is True if ratings were successfully added
+            - user_id is the ID of the user
+            - is_new_user is True if a new user was created, False if updating existing user
+        """
+        # Check if it's a new or existing user
+        is_new_user = user_id is None or user_id not in self.user_id_to_idx
+        
+        if is_new_user:
+            # Generate new user ID if not provided
+            if user_id is None:
+                user_id = max(self.user_ids) + 1 if self.user_ids else 1
+                logger.info(f"Generated new user ID: {user_id}")
+            
+            # Add user to mappings
+            user_idx = len(self.user_ids)
+            self.user_ids.append(user_id)
+            self.user_id_to_idx[user_id] = user_idx
+            
+            # Extend user factors and bias arrays
+            self.user_factors = np.vstack([self.user_factors, np.full((1, self.n_factors), 0.1)])
+            self.user_bias = np.append(self.user_bias, 0)
+            
+            logger.info(f"Added new user {user_id} with {len(ratings)} ratings")
+        else:
+            # Get existing user index
+            user_idx = self.user_id_to_idx[user_id]
+            logger.info(f"Updating existing user {user_id} with {len(ratings)} new ratings")
+        
+        # Learn/update factors for the user based on their ratings
+        self._learn_user_factors(user_idx, ratings)
+        
+        return True, user_id, is_new_user
+
+    def _learn_user_factors(self, user_idx, ratings):
+        """
+        Learn latent factors for a user based on their ratings
+        
+        Parameters:
+        -----------
+        user_idx : int
+            The index of the user in the model's arrays
+        ratings : list of dict
+            List of ratings from the user
+        """
+        # Only process ratings for items that exist in the model
+        valid_ratings = []
+        for rating_data in ratings:
+            item_id = rating_data['BggId']
+            if item_id in self.item_id_to_idx:
+                valid_ratings.append((item_id, rating_data['Rating']))
+        
+        if not valid_ratings:
+            logger.warning("No valid ratings to learn from for this user")
+            return  # No valid ratings to learn from
+        
+        # Use simplified SGD to learn user factors
+        # Similar to training but only updating user factors and bias
+        epochs = 20  # More epochs for this single user
+        learn_rate = self.learn_rate * 2  # Slightly higher learning rate
+        
+        for epoch in range(epochs):
+            # Shuffle ratings for SGD
+            random.shuffle(valid_ratings)
+            
+            # Track error for convergence checking
+            error_sum = 0
+            
+            for item_id, rating in valid_ratings:
+                item_idx = self.item_id_to_idx[item_id]
+                
+                # Calculate prediction error
+                pred = self.predict(user_idx, item_idx)
+                err = rating - pred
+                error_sum += err ** 2
+                
+                # Update user bias
+                self.user_bias[user_idx] += self.bias_learn_rate * (err - self.bias_reg * self.user_bias[user_idx])
+                
+                # Update user factors (keeping item factors fixed)
+                for f in range(self.n_factors):
+                    self.user_factors[user_idx, f] += learn_rate * (
+                        err * self.item_factors[item_idx, f] - 
+                        self.regularization * self.user_factors[user_idx, f]
+                    )
+            
+            # Check for convergence
+            rmse = np.sqrt(error_sum / len(valid_ratings))
+            if epoch > 0 and rmse < 0.01:
+                logger.debug(f"User factors converged after {epoch+1} epochs with RMSE: {rmse:.4f}")
+                break
+                
+        logger.debug(f"Finished learning factors for user with final RMSE: {rmse:.4f}")
+

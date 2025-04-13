@@ -8,7 +8,8 @@ from src.funk_svd import FunkSVD
 class GameRecommender:
     def __init__(self, model_path=None, train_data=None, games_data_path=None):
         self.model = FunkSVD()
-        self.train_data = train_data
+        # Convert train_data to list if it's a numpy array
+        self.train_data = list(train_data)
         self.games_data = None
 
         # Load games data if path provided
@@ -69,7 +70,8 @@ class GameRecommender:
 
     def train(self, train_data, test_data=None, **kwargs):
         """Train the model with optional parameters"""
-        self.train_data = train_data  # Store for later use
+        # Convert train_data to list if it's a numpy array
+        self.train_data = list(train_data) if isinstance(train_data, np.ndarray) else train_data
         self.model = FunkSVD(**kwargs)
         self.model.fit(train_data, test_data)
         return self
@@ -83,6 +85,94 @@ class GameRecommender:
             self.model.save(self.model.n_factors - 1, True)  # Save as final model
             self.model.save_path = old_path  # Restore original path
         return self
+
+    def add_new_user(self, ratings, user_id=None):
+        """
+        Add a new user to the model with their ratings.
+        
+        Parameters:
+        -----------
+        ratings : list of dict
+            List of ratings from the user, each containing 'BggId' and 'Rating' keys
+        user_id : int, optional
+            The ID of the new user. If None, a new ID will be automatically generated.
+            
+        Returns:
+        --------
+        tuple
+            (success, user_id) where success is True if user was added, 
+            False if user already existed, and user_id is the ID of the user
+        """
+        if not self.model:
+            raise ValueError("Model must be trained or loaded before adding new users")
+            
+        # Add user to the model
+        success, user_id = self.model.add_new_user(ratings, user_id)
+        
+        # Update internal training data if successful
+        if success and self.train_data is not None:
+            # Ensure train_data is a list
+            if isinstance(self.train_data, np.ndarray):
+                self.train_data = list(self.train_data)
+                
+            # Create proper format for each rating
+            for rating_data in ratings:
+                # Ensure we have all required fields
+                new_rating = {
+                    'UserId': user_id,
+                    'BggId': rating_data['BggId'],
+                    'Rating': rating_data['Rating'],
+                    'Username': rating_data.get('Username', f'user_{user_id}')  # Default username if not provided
+                }
+
+                self.train_data.append(new_rating)
+        
+        return success, user_id
+        
+    def add_user_ratings(self, ratings, user_id=None):
+        """
+        Add ratings from either a new or existing user to the model.
+        
+        Parameters:
+        -----------
+        ratings : list of dict
+            List of ratings from the user, each containing 'BggId' and 'Rating' keys
+        user_id : int, optional
+            The ID of the user. If None, a new ID will be automatically generated.
+            
+        Returns:
+        --------
+        tuple
+            (success, user_id, is_new_user) where:
+            - success is True if ratings were successfully added
+            - user_id is the ID of the user
+            - is_new_user is True if a new user was created, False if updating existing user
+        """
+        if not self.model:
+            raise ValueError("Model must be trained or loaded before adding ratings")
+            
+        # Add ratings to the model
+        success, user_id, is_new_user = self.model.add_ratings(ratings, user_id)
+        
+        # Update internal training data if successful
+        if success and self.train_data is not None:
+            # Ensure train_data is a list
+            if isinstance(self.train_data, np.ndarray):
+                self.train_data = list(self.train_data)
+                
+            # Create proper format for each rating
+            for rating_data in ratings:
+                # Ensure we have all required fields
+                new_rating = {
+                    'UserId': user_id,
+                    'BggId': rating_data['BggId'],
+                    'Rating': rating_data['Rating'],
+                    'Username': rating_data.get('Username', f'user_{user_id}')  # Default username if not provided
+                }
+
+                self.train_data.append(new_rating)
+        
+        return success, user_id, is_new_user
 
     @staticmethod
     def get_popular_recommendations(train_data, n=10):
