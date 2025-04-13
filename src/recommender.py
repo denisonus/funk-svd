@@ -1,9 +1,8 @@
 import numpy as np
 import pandas as pd
-
 from src.config import GAMES_DATA_PATH
 from src.funk_svd import FunkSVD
-
+from src.utils.persistence import load_model, save_model
 
 class GameRecommender:
     def __init__(self, model_path=None, train_data=None, games_data_path=None):
@@ -17,7 +16,7 @@ class GameRecommender:
             self.load_games_data(games_data_path)
 
         if model_path:
-            self.model.load(model_path)
+            load_model(self.model, model_path)
 
     def get_predictions(self, user_id, item_ids=None):
         """Get predictions for a user for specific items"""
@@ -41,21 +40,17 @@ class GameRecommender:
 
         # Filter out already rated items
         rated_items = set(item['BggId'] for item in self.train_data if item['UserId'] == user_id)
-        predictions = {item_id: rating for item_id, rating in predictions.items()
-                      if item_id not in rated_items}
+        predictions = {item_id: rating for item_id, rating in predictions.items() if item_id not in rated_items}
 
         # Sort and get top N
         sorted_predictions = sorted(predictions.items(), key=lambda x: x[1], reverse=True)[:n]
-        
+
         # Build recommendation list
         recommendations = []
         for item_id, rating in sorted_predictions:
             item_id = int(item_id)
-            rec = {
-                'BggId': item_id,
-                'PredictedRating': rating
-            }
-            
+            rec = {'BggId': item_id, 'PredictedRating': rating}
+
             # Add requested game attributes if available
             if attributes and self.games_data:
                 if item_id in self.games_data:
@@ -63,9 +58,9 @@ class GameRecommender:
                     for attr in attributes:
                         if attr in game_info:
                             rec[attr] = game_info[attr]
-            
+
             recommendations.append(rec)
-            
+
         return recommendations
 
     def train(self, train_data, test_data=None, **kwargs):
@@ -79,56 +74,34 @@ class GameRecommender:
     def save(self, model_path):
         """Save the trained recommender"""
         if self.model:
-            # Update save path in model if different
-            old_path = self.model.save_path
-            self.model.save_path = model_path
-            self.model.save(self.model.n_factors - 1, True)  # Save as final model
-            self.model.save_path = old_path  # Restore original path
+            save_model(self.model, model_path, self.model.n_factors - 1, True)
         return self
 
-    def add_new_user(self, ratings, user_id=None):
+    def _update_train_data(self, ratings, user_id):
         """
-        Add a new user to the model with their ratings.
+        Helper method to update training data with new ratings
         
         Parameters:
         -----------
         ratings : list of dict
-            List of ratings from the user, each containing 'BggId' and 'Rating' keys
-        user_id : int, optional
-            The ID of the new user. If None, a new ID will be automatically generated.
-            
-        Returns:
-        --------
-        tuple
-            (success, user_id) where success is True if user was added, 
-            False if user already existed, and user_id is the ID of the user
+            List of ratings to add to training data
+        user_id : int
+            ID of the user providing the ratings
         """
-        if not self.model:
-            raise ValueError("Model must be trained or loaded before adding new users")
-            
-        # Add user to the model
-        success, user_id = self.model.add_new_user(ratings, user_id)
-        
-        # Update internal training data if successful
-        if success and self.train_data is not None:
-            # Ensure train_data is a list
-            if isinstance(self.train_data, np.ndarray):
-                self.train_data = list(self.train_data)
-                
-            # Create proper format for each rating
-            for rating_data in ratings:
-                # Ensure we have all required fields
-                new_rating = {
-                    'UserId': user_id,
-                    'BggId': rating_data['BggId'],
-                    'Rating': rating_data['Rating'],
-                    'Username': rating_data.get('Username', f'user_{user_id}')  # Default username if not provided
-                }
+        if self.train_data is None:
+            return
 
-                self.train_data.append(new_rating)
-        
-        return success, user_id
-        
+        # Ensure train_data is a list
+        if isinstance(self.train_data, np.ndarray):
+            self.train_data = list(self.train_data)
+
+        # Create proper format for each rating and add to training data
+        for rating_data in ratings:
+            new_rating = {'UserId': user_id, 'BggId': rating_data['BggId'], 'Rating': rating_data['Rating'],
+                'Username': rating_data.get('Username', f'user_{user_id}')  # Default username if not provided
+            }
+            self.train_data.append(new_rating)
+
     def add_user_ratings(self, ratings, user_id=None):
         """
         Add ratings from either a new or existing user to the model.
@@ -150,28 +123,14 @@ class GameRecommender:
         """
         if not self.model:
             raise ValueError("Model must be trained or loaded before adding ratings")
-            
+
         # Add ratings to the model
         success, user_id, is_new_user = self.model.add_ratings(ratings, user_id)
-        
-        # Update internal training data if successful
-        if success and self.train_data is not None:
-            # Ensure train_data is a list
-            if isinstance(self.train_data, np.ndarray):
-                self.train_data = list(self.train_data)
-                
-            # Create proper format for each rating
-            for rating_data in ratings:
-                # Ensure we have all required fields
-                new_rating = {
-                    'UserId': user_id,
-                    'BggId': rating_data['BggId'],
-                    'Rating': rating_data['Rating'],
-                    'Username': rating_data.get('Username', f'user_{user_id}')  # Default username if not provided
-                }
 
-                self.train_data.append(new_rating)
-        
+        # Update internal training data if successful
+        if success:
+            self._update_train_data(ratings, user_id)
+
         return success, user_id, is_new_user
 
     @staticmethod

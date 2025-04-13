@@ -1,11 +1,11 @@
 import random
-from pathlib import Path
 
 import numpy as np
 from loguru import logger
 
 from src.config import FUNK_SVD_CONFIG
 from src.utils.utils import ensure_dir
+from src.utils.persistence import save_model
 
 
 class FunkSVD:
@@ -128,10 +128,10 @@ class FunkSVD:
                 last_train_rmse = train_rmse
                 last_test_err = test_err
 
-            self.save(factor, finished)
+            save_model(self, factor, finished)
 
         # Save final model
-        self.save(self.n_factors - 1, True)
+        save_model(self, self.n_factors - 1, True)
         return self
 
     def update_factor(self, factor_idx, indices, ratings):
@@ -190,147 +190,6 @@ class FunkSVD:
             squared_sum += (pred - rating) ** 2
 
         return np.sqrt(squared_sum / count)
-
-    def save(self, factor_idx, finished):
-        """Save model to disk, unless save_path is None"""
-        if self.save_path is None:
-            return
-
-        save_path = Path(self.save_path) / 'model'
-        if finished:
-            save_path = save_path / 'final'
-        else:
-            save_path = save_path / str(factor_idx)
-
-        save_path.mkdir(parents=True, exist_ok=True)
-
-        logger.info(f"Saving model to {save_path}")
-
-        # Save essential model data
-        np.save(save_path / 'user_factors.npy', self.user_factors)
-        np.save(save_path / 'item_factors.npy', self.item_factors)
-        np.save(save_path / 'user_bias.npy', self.user_bias)
-        np.save(save_path / 'item_bias.npy', self.item_bias)
-
-        # Save minimal metadata in one file
-        metadata = {'user_id_to_idx': self.user_id_to_idx, 'item_id_to_idx': self.item_id_to_idx,
-                    'global_mean': self.global_mean, 'n_factors': self.n_factors, 'current_factor': factor_idx,
-                    'user_ids': self.user_ids, 'item_ids': self.item_ids}
-        np.save(save_path / 'metadata.npy', metadata)
-
-    def load(self, model_path):
-        """Load model from disk"""
-        # Convert string path to Path object if needed
-        model_path = Path(model_path)
-        logger.info(f"Loading model from {model_path}")
-
-        # Load essential model data
-        self.user_factors = np.load(model_path / 'user_factors.npy')
-        self.item_factors = np.load(model_path / 'item_factors.npy')
-        self.user_bias = np.load(model_path / 'user_bias.npy')
-        self.item_bias = np.load(model_path / 'item_bias.npy')
-
-        # Load metadata
-        metadata = np.load(model_path / 'metadata.npy', allow_pickle=True).item()
-        self.user_id_to_idx = metadata['user_id_to_idx']
-        self.item_id_to_idx = metadata['item_id_to_idx']
-        self.global_mean = metadata['global_mean']
-        self.n_factors = metadata['n_factors']
-        self.user_ids = metadata['user_ids']
-        self.item_ids = metadata['item_ids']
-
-        return self
-
-    def add_new_user(self, ratings, user_id=None):
-        """
-        Add a new user to the model with their ratings.
-        
-        Parameters:
-        -----------
-        ratings : list of dict
-            List of ratings from the user, each containing 'BggId' and 'Rating' keys
-        user_id : int, optional
-            The ID of the new user. If None, a new ID will be generated.
-            
-        Returns:
-        --------
-        tuple
-            (success, user_id) where success is True if user was added, 
-            False if the user already existed, and user_id is the ID of the user
-        """
-        # Generate new user ID if not provided
-        if user_id is None:
-            # Find the max user ID and add 1
-            user_id = max(self.user_ids) + 1 if self.user_ids else 1
-            logger.info(f"Generated new user ID: {user_id}")
-        
-        # Check if user already exists
-        if user_id in self.user_id_to_idx:
-            logger.info(f"User {user_id} already exists in the model")
-            return False, user_id
-            
-        # Add user to mappings
-        user_idx = len(self.user_ids)
-        self.user_ids.append(user_id)
-        self.user_id_to_idx[user_id] = user_idx
-        
-        # Extend user factors and bias arrays
-        self.user_factors = np.vstack([self.user_factors, np.full((1, self.n_factors), 0.1)])
-        self.user_bias = np.append(self.user_bias, 0)
-        
-        # Learn factors for the new user based on their ratings
-        self._learn_user_factors(user_idx, ratings)
-        
-        logger.info(f"Added new user {user_id} with {len(ratings)} ratings")
-        return True, user_id
-
-    def add_ratings(self, ratings, user_id=None):
-        """
-        Add ratings from either a new or existing user to the model.
-        
-        Parameters:
-        -----------
-        ratings : list of dict
-            List of ratings, each containing 'BggId' and 'Rating' keys
-        user_id : int, optional
-            The ID of the user. If None, a new ID will be generated.
-            
-        Returns:
-        --------
-        tuple
-            (success, user_id, is_new_user) where:
-            - success is True if ratings were successfully added
-            - user_id is the ID of the user
-            - is_new_user is True if a new user was created, False if updating existing user
-        """
-        # Check if it's a new or existing user
-        is_new_user = user_id is None or user_id not in self.user_id_to_idx
-        
-        if is_new_user:
-            # Generate new user ID if not provided
-            if user_id is None:
-                user_id = max(self.user_ids) + 1 if self.user_ids else 1
-                logger.info(f"Generated new user ID: {user_id}")
-            
-            # Add user to mappings
-            user_idx = len(self.user_ids)
-            self.user_ids.append(user_id)
-            self.user_id_to_idx[user_id] = user_idx
-            
-            # Extend user factors and bias arrays
-            self.user_factors = np.vstack([self.user_factors, np.full((1, self.n_factors), 0.1)])
-            self.user_bias = np.append(self.user_bias, 0)
-            
-            logger.info(f"Added new user {user_id} with {len(ratings)} ratings")
-        else:
-            # Get existing user index
-            user_idx = self.user_id_to_idx[user_id]
-            logger.info(f"Updating existing user {user_id} with {len(ratings)} new ratings")
-        
-        # Learn/update factors for the user based on their ratings
-        self._learn_user_factors(user_idx, ratings)
-        
-        return True, user_id, is_new_user
 
     def _learn_user_factors(self, user_idx, ratings):
         """
@@ -391,4 +250,52 @@ class FunkSVD:
                 break
                 
         logger.debug(f"Finished learning factors for user with final RMSE: {rmse:.4f}")
+
+    def add_ratings(self, ratings, user_id=None):
+        """
+        Add ratings from either a new or existing user to the model.
+        
+        Parameters:
+        -----------
+        ratings : list of dict
+            List of ratings, each containing 'BggId' and 'Rating' keys
+        user_id : int, optional
+            The ID of the user. If None, a new ID will be generated.
+            
+        Returns:
+        --------
+        tuple
+            (success, user_id, is_new_user) where:
+            - success is True if ratings were successfully added
+            - user_id is the ID of the user
+            - is_new_user is True if a new user was created, False if updating existing user
+        """
+        # Check if it's a new or existing user
+        is_new_user = user_id is None or user_id not in self.user_id_to_idx
+        
+        if is_new_user:
+            # Generate new user ID if not provided
+            if user_id is None:
+                user_id = max(self.user_ids) + 1 if self.user_ids else 1
+                logger.info(f"Generated new user ID: {user_id}")
+            
+            # Add user to mappings
+            user_idx = len(self.user_ids)
+            self.user_ids.append(user_id)
+            self.user_id_to_idx[user_id] = user_idx
+            
+            # Extend user factors and bias arrays
+            self.user_factors = np.vstack([self.user_factors, np.full((1, self.n_factors), 0.1)])
+            self.user_bias = np.append(self.user_bias, 0)
+            
+            logger.info(f"Added new user {user_id} with {len(ratings)} ratings")
+        else:
+            # Get existing user index
+            user_idx = self.user_id_to_idx[user_id]
+            logger.info(f"Updating existing user {user_id} with {len(ratings)} new ratings")
+        
+        # Learn/update factors for the user based on their ratings
+        self._learn_user_factors(user_idx, ratings)
+        
+        return True, user_id, is_new_user
 
