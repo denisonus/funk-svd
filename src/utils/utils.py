@@ -5,8 +5,8 @@ import numpy as np
 import pandas as pd
 
 # Using pathlib for path operations
-TRAIN_DATA_PATH = Path('..') / 'data' / 'processed' / 'user_ratings_train_100K.csv'
-TEST_DATA_PATH = Path('..') / 'data' / 'processed' / 'user_ratings_test_100K.csv'
+TRAIN_DATA_PATH = Path('..') / Path('..') / 'data' / 'processed' / 'user_ratings_train_100K.csv'
+TEST_DATA_PATH = Path('..') / Path('..') / 'data' / 'processed' / 'user_ratings_test_100K.csv'
 
 
 def load_data(file_path):

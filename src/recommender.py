@@ -17,7 +17,7 @@ class GameRecommender:
 
     def get_top_n_recommendations(self, user_id, n=10, include_scores=True):
         """Get top N recommendations for a user without requiring train_data parameter"""
-        if not self.train_data:
+        if self.train_data is None or len(self.train_data) == 0:
             raise ValueError("Train data is required for filtering recommendations")
 
         # Get all predictions
@@ -26,7 +26,7 @@ class GameRecommender:
         # Filter out already rated items
         rated_items = set(item['BggId'] for item in self.train_data if item['UserId'] == user_id)
         predictions = {item_id: rating for item_id, rating in predictions.items()
-                      if item_id not in rated_items}
+                       if item_id not in rated_items}
 
         # Sort and return top N
         sorted_predictions = sorted(predictions.items(), key=lambda x: x[1], reverse=True)[:n]
