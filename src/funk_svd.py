@@ -1,12 +1,10 @@
 import random
+from pathlib import Path
 
 import numpy as np
-import pandas as pd
 from loguru import logger
 
 from src.config import FUNK_SVD_CONFIG
-from src.utils.persistence import save_model
-from src.utils.utils import ensure_dir
 
 
 class FunkSVD:
@@ -14,7 +12,6 @@ class FunkSVD:
         params = FUNK_SVD_CONFIG.copy()
         params.update(kwargs)
 
-        self.save_path = params['save_path']
         self.n_factors = params['n_factors']
         self.max_iterations = params['max_iterations']
         self.stop_threshold = params['stop_threshold']
@@ -36,8 +33,6 @@ class FunkSVD:
 
         # For reproducibility
         random.seed(42)
-        if self.save_path:
-            ensure_dir(self.save_path)
 
     def initialize_factors(self, data):
         """Initialize model parameters directly from DataFrame"""
@@ -132,10 +127,6 @@ class FunkSVD:
                 last_train_rmse = train_rmse
                 last_test_err = test_err
 
-            save_model(self, factor, finished)
-
-        # Save final model
-        save_model(self, self.n_factors - 1, True)
         return self
 
     def update_factor(self, factor_idx, indices, ratings):
@@ -246,3 +237,47 @@ class FunkSVD:
             # Fallback to simple averaging if matrix solution fails
             self.user_factors[user_idx] = np.mean(item_factors_subset, axis=0)
             return False
+
+    def save_model(self, save_path):
+        """
+        Save model to disk, unless save_path is None
+        """
+        save_path = Path(save_path)
+        save_path.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Saving model to {save_path}")
+
+        np.save(save_path / 'user_factors.npy', self.user_factors)
+        np.save(save_path / 'item_factors.npy', self.item_factors)
+        np.save(save_path / 'user_bias.npy', self.user_bias)
+        np.save(save_path / 'item_bias.npy', self.item_bias)
+
+        metadata = {
+            'user_id_to_idx': self.user_id_to_idx,
+            'item_id_to_idx': self.item_id_to_idx,
+            'global_mean': self.global_mean,
+            'n_factors': self.n_factors,
+            'user_ids': self.user_ids,
+            'item_ids': self.item_ids
+        }
+        np.save(save_path / 'metadata.npy', metadata)
+
+    def load_model(self, model_path):
+        """
+        Load model data into an existing FunkSVD instance
+        """
+        model_path = Path(model_path)
+        logger.info(f"Loading model from {model_path}")
+
+        self.user_factors = np.load(model_path / 'user_factors.npy')
+        self.item_factors = np.load(model_path / 'item_factors.npy')
+        self.user_bias = np.load(model_path / 'user_bias.npy')
+        self.item_bias = np.load(model_path / 'item_bias.npy')
+        metadata = np.load(model_path / 'metadata.npy', allow_pickle=True).item()
+
+        self.user_id_to_idx = metadata['user_id_to_idx']
+        self.item_id_to_idx = metadata['item_id_to_idx']
+        self.global_mean = metadata['global_mean']
+        self.n_factors = metadata['n_factors']
+        self.user_ids = metadata['user_ids']
+        self.item_ids = metadata['item_ids']
+        return self

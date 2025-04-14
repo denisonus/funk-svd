@@ -11,7 +11,6 @@ GAMES_DATA_PATH = BASE_DIR / 'data' / 'raw' / 'games.csv'
 
 # Default FunkSVD parameters
 FUNK_SVD_CONFIG = {
-    'save_path': FUNK_SVD_MODEL_DIR,
     'n_factors': 20,
     'max_iterations': 10,
     'stop_threshold': 0.005,

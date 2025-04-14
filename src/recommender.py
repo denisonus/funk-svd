@@ -1,24 +1,16 @@
 import numpy as np
 import pandas as pd
 
-from src.config import GAMES_DATA_PATH
 from src.funk_svd import FunkSVD
-from src.utils.persistence import load_model, save_model
 
 
 class GameRecommender:
-    def __init__(self, model_path=None, train_data=None, games_data_path=None):
+    def __init__(self, train_data, games_data_path):
         self.model = FunkSVD()
         # Convert train_data to DataFrame if needed
-        self.train_data = self._ensure_dataframe(train_data) if train_data is not None else None
+        self.train_data = train_data
         self.games_data = None
-
-        # Load games data if path provided
-        if games_data_path:
-            self.load_games_data(games_data_path)
-
-        if model_path:
-            load_model(self.model, model_path)
+        self.load_games_data(games_data_path)
 
     def _ensure_dataframe(self, data):
         """Convert data to pandas DataFrame if it's not already"""
@@ -33,27 +25,18 @@ class GameRecommender:
         """Get predictions for a user for specific items"""
         return self.model.predict_for_user(user_id, item_ids)
 
-    def load_games_data(self, games_data_path=None):
+    def load_games_data(self, games_data_path):
         """Load game information from CSV file"""
-        path = games_data_path or GAMES_DATA_PATH
-        games_df = pd.read_csv(path)
+        games_df = pd.read_csv(games_data_path)
         # Create dictionary for fast lookup by BGGId
         self.games_data = {int(row['BGGId']): row.to_dict() for _, row in games_df.iterrows()}
         return self
 
     def get_recommendations(self, user_id, n=10, attributes=None):
-        """Get top N recommendations for a user with specified game attributes."""
-        if self.train_data is None or len(self.train_data) == 0:
-            raise ValueError("Train data is required for filtering recommendations")
-
-        # Get all predictions
-        predictions = self.model.predict_for_user(user_id)
-
-        # Filter out already rated items using DataFrame operations
         rated_items = set(self.train_data[self.train_data['UserId'] == user_id]['BGGId'].unique())
-        predictions = {item_id: rating for item_id, rating in predictions.items() if item_id not in rated_items}
+        candidate_items = [item_id for item_id in self.model.item_ids if item_id not in rated_items]
 
-        # Sort and get top N
+        predictions = self.model.predict_for_user(user_id, candidate_items)
         sorted_predictions = sorted(predictions.items(), key=lambda x: x[1], reverse=True)[:n]
 
         # Build recommendation list
@@ -73,21 +56,20 @@ class GameRecommender:
 
         return recommendations
 
-    def train(self, train_data, test_data=None, **kwargs):
+    def train(self, test_data=None, **kwargs):
         """Train the model with optional parameters"""
-        # Convert to DataFrame if not already
-        self.train_data = self._ensure_dataframe(train_data)
-        test_data_df = self._ensure_dataframe(test_data) if test_data is not None else None
-
-        # Initialize model with parameters and train directly with DataFrames
         self.model = FunkSVD(**kwargs)
-        self.model.fit(self.train_data, test_data_df)
+        self.model.fit(self.train_data, test_data)
         return self
 
-    def save(self, model_path):
+    def save(self, save_path):
         """Save the trained recommender"""
-        if self.model:
-            save_model(self.model, model_path, self.model.n_factors - 1, True)
+        self.model.save_model(save_path)
+        return self
+
+    def load(self, model_path):
+        """Load a trained recommender model"""
+        self.model.load_model(model_path)
         return self
 
     def add_user_ratings(self, ratings, user_id=None):
