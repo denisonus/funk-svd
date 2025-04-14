@@ -17,9 +17,7 @@ def main():
     # Load model through recommender
     model_path = FUNK_SVD_CONFIG['save_path'] / 'model' / 'final'
     recommender = GameRecommender(model_path=model_path, train_data=train_data)
-
-    # Now recommender is ready to generate predictions
-    # Example: recommender.get_top_n_recommendations(user_id=232941, n=5)
+    recommender.train(train_data=train_data, test_data=test_data)
 
 
 if __name__ == "__main__":
