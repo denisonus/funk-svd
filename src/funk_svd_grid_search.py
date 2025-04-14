@@ -2,6 +2,7 @@ import itertools
 import json
 import time
 from pathlib import Path
+from typing import Dict, List, Any, Union
 
 from loguru import logger
 
@@ -11,10 +12,10 @@ from src.utils.utils import ensure_dir, get_train_data, get_test_data
 
 
 class FunkSVDGridSearch:
-    def __init__(self, param_grid, save_path, load_results):
+    def __init__(self, param_grid: Dict[str, List[Any]], save_path: Union[str, Path], load_results: bool) -> None:
         self.param_grid = param_grid
         self.save_path = Path(save_path)
-        self.results = []
+        self.results: List[Dict[str, Any]] = []
         ensure_dir(save_path)
         self.results_path = self.save_path / "grid_search_results.json"
 
@@ -26,7 +27,7 @@ class FunkSVDGridSearch:
             except Exception as e:
                 logger.warning(f"Failed to load existing results: {e}")
 
-    def fit(self, train_data, test_data):
+    def fit(self, train_data: Any, test_data: Any) -> Dict[str, Any]:
         # Generate all parameter combinations
         param_names = list(self.param_grid.keys())
         param_values = list(self.param_grid.values())
@@ -75,7 +76,7 @@ class FunkSVDGridSearch:
         return best_params
 
 
-def run_grid_search(load_previous_results):
+def run_grid_search(load_previous_results: bool) -> Dict[str, Any]:
     # Load data
     train_data = get_train_data()
     test_data = get_test_data()

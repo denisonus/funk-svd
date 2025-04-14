@@ -1,3 +1,6 @@
+from pathlib import Path
+from typing import Dict, List, Optional, Union, Tuple, Any
+
 import numpy as np
 import pandas as pd
 
@@ -5,34 +8,33 @@ from src.funk_svd import FunkSVD
 
 
 class GameRecommender:
-    def __init__(self, train_data, games_data_path):
-        self.model = FunkSVD()
+    def __init__(self, train_data: pd.DataFrame, games_data_path: Optional[Union[str, Path]] = None) -> None:
+        """
+        Initialize the game recommender system.
+        
+        Args:
+            train_data: DataFrame with user ratings
+            games_data_path: Path to games data CSV file. Required for attribute-based recommendations.
+        """
+        self.model: FunkSVD = FunkSVD()
         # Convert train_data to DataFrame if needed
-        self.train_data = train_data
-        self.games_data = None
-        self.load_games_data(games_data_path)
+        self.train_data: pd.DataFrame = train_data
+        self.games_data: Optional[Dict[int, Dict[str, Any]]] = None
+        if games_data_path:
+            self.load_games_data(games_data_path)
 
-    def _ensure_dataframe(self, data):
-        """Convert data to pandas DataFrame if it's not already"""
-        if isinstance(data, pd.DataFrame):
-            return data
-        elif isinstance(data, list) or isinstance(data, np.ndarray):
-            return pd.DataFrame(data)
-        else:
-            raise ValueError("train_data must be a DataFrame, list, or numpy array")
-
-    def get_predictions(self, user_id, item_ids=None):
+    def get_predictions(self, user_id: int, item_ids: Optional[List[int]] = None) -> Dict[int, float]:
         """Get predictions for a user for specific items"""
         return self.model.predict_for_user(user_id, item_ids)
 
-    def load_games_data(self, games_data_path):
+    def load_games_data(self, games_data_path: Union[str, Path]) -> None:
         """Load game information from CSV file"""
         games_df = pd.read_csv(games_data_path)
         # Create dictionary for fast lookup by BGGId
         self.games_data = {int(row['BGGId']): row.to_dict() for _, row in games_df.iterrows()}
-        return self
 
-    def get_recommendations(self, user_id, n=10, attributes=None):
+    def get_recommendations(self, user_id: int, n: int = 10, attributes: Optional[List[str]] = None) -> List[
+        Dict[str, Any]]:
         rated_items = set(self.train_data[self.train_data['UserId'] == user_id]['BGGId'].unique())
         candidate_items = [item_id for item_id in self.model.item_ids if item_id not in rated_items]
 
@@ -56,28 +58,26 @@ class GameRecommender:
 
         return recommendations
 
-    def train(self, test_data=None, **kwargs):
+    def train(self, test_data: Optional[pd.DataFrame] = None, **kwargs) -> None:
         """Train the model with optional parameters"""
         self.model = FunkSVD(**kwargs)
         self.model.fit(self.train_data, test_data)
-        return self
 
-    def save(self, save_path):
+    def save(self, save_path: str) -> None:
         """Save the trained recommender"""
         self.model.save_model(save_path)
-        return self
 
-    def load(self, model_path):
+    def load(self, model_path: str) -> None:
         """Load a trained recommender model"""
         self.model.load_model(model_path)
-        return self
 
-    def add_user_ratings(self, ratings, user_id=None):
+    def add_user_ratings(self, ratings: List[Dict[str, Any]], user_id: Optional[int] = None) -> \
+            Tuple[bool, Optional[int], bool]:
         """
         Add or update user ratings with simplified latent factor learning.
 
         Args:
-            ratings: DataFrame or list of ratings with 'BGGId' and 'Rating' columns
+            ratings: List of rating dictionaries with 'BGGId' and 'Rating' keys
             user_id: Optional user ID. If None, creates a new user.
 
         Returns:
@@ -101,15 +101,16 @@ class GameRecommender:
 
         return success, user_id, is_new_user
 
-    def _prepare_ratings(self, ratings):
+    def _prepare_ratings(self, ratings: List[Dict[str, Any]]) -> pd.DataFrame:
         """Prepare and validate ratings data."""
-        ratings_df = self._ensure_dataframe(ratings)
+        # Convert to DataFrame
+        ratings_df = pd.DataFrame(ratings)
 
         # Filter for valid game IDs that exist in our model
         valid_game_ids = set(self.model.item_id_to_idx.keys())
         return ratings_df[ratings_df['BGGId'].isin(valid_game_ids)]
 
-    def _update_training_data(self, user_id, ratings_df):
+    def _update_training_data(self, user_id: int, ratings_df: pd.DataFrame) -> None:
         """Update internal training data with new ratings."""
         ratings_to_add = ratings_df.copy()
         ratings_to_add['UserId'] = user_id
@@ -122,22 +123,21 @@ class GameRecommender:
 
         # Remove existing ratings for this user-item pair before adding new ones
         if not self.train_data.empty:
+            # Create a multi-index for faster filtering
             user_items = set(zip(ratings_to_add['UserId'], ratings_to_add['BGGId']))
-            mask = ~self.train_data.apply(
-                lambda row: (row['UserId'], row['BGGId']) in user_items, axis=1
-            )
+            # Filter out existing ratings that will be replaced
+            mask = ~pd.Series([
+                (row['UserId'], row['BGGId']) in user_items
+                for _, row in self.train_data.iterrows()
+            ])
             self.train_data = pd.concat([self.train_data[mask], ratings_to_add],
                                         ignore_index=True)
         else:
             self.train_data = ratings_to_add
 
     @staticmethod
-    def get_popular_recommendations(train_data, n=10):
+    def get_popular_recommendations(train_data: pd.DataFrame, n: int = 10) -> List[Tuple[int, float]]:
         """Get top N popular recommendations based on average ratings and counts."""
-        # Convert to DataFrame if not already
-        if not isinstance(train_data, pd.DataFrame):
-            train_data = pd.DataFrame(train_data)
-
         # Group by item and calculate statistics
         item_stats = train_data.groupby('BGGId').agg(
             avg_rating=('Rating', 'mean'),

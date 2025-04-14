@@ -1,40 +1,42 @@
 import random
 from pathlib import Path
+from typing import Dict, List, Tuple, Optional, Union, Any
 
 import numpy as np
+import pandas as pd
 from loguru import logger
 
 from src.config import FUNK_SVD_CONFIG
 
 
 class FunkSVD:
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Any) -> None:
         params = FUNK_SVD_CONFIG.copy()
         params.update(kwargs)
 
-        self.n_factors = params['n_factors']
-        self.max_iterations = params['max_iterations']
-        self.stop_threshold = params['stop_threshold']
-        self.learn_rate = params['learn_rate']
-        self.bias_learn_rate = params['bias_learn_rate']
-        self.regularization = params['regularization']
-        self.bias_reg = params['bias_reg']
+        self.n_factors: int = params['n_factors']
+        self.max_iterations: int = params['max_iterations']
+        self.stop_threshold: float = params['stop_threshold']
+        self.learn_rate: float = params['learn_rate']
+        self.bias_learn_rate: float = params['bias_learn_rate']
+        self.regularization: float = params['regularization']
+        self.bias_reg: float = params['bias_reg']
 
         # Model state
-        self.global_mean = 0
-        self.user_bias = None
-        self.item_bias = None
-        self.user_factors = None
-        self.item_factors = None
-        self.user_id_to_idx = {}
-        self.item_id_to_idx = {}
-        self.user_ids = []
-        self.item_ids = []
+        self.global_mean: float = 0.0
+        self.user_bias: Optional[np.ndarray] = None
+        self.item_bias: Optional[np.ndarray] = None
+        self.user_factors: Optional[np.ndarray] = None
+        self.item_factors: Optional[np.ndarray] = None
+        self.user_id_to_idx: Dict[int, int] = {}
+        self.item_id_to_idx: Dict[int, int] = {}
+        self.user_ids: List[int] = []
+        self.item_ids: List[int] = []
 
         # For reproducibility
         random.seed(42)
 
-    def initialize_factors(self, data):
+    def initialize_factors(self, data: pd.DataFrame) -> None:
         """Initialize model parameters directly from DataFrame"""
         # Extract unique IDs directly from DataFrame
         self.user_ids = list(data['UserId'].unique())
@@ -55,7 +57,7 @@ class FunkSVD:
         # Calculate global mean directly from DataFrame
         self.global_mean = data['Rating'].mean()
 
-    def predict(self, user_idx, item_idx, factors_to_use=None):
+    def predict(self, user_idx: int, item_idx: int, factors_to_use: Optional[int] = None) -> float:
         """Predict rating for user-item pair"""
         factors_to_use = self.n_factors if factors_to_use is None else min(factors_to_use, self.n_factors)
 
@@ -65,7 +67,7 @@ class FunkSVD:
 
         return np.clip(prediction, 1, 10)
 
-    def predict_for_user(self, user_id, item_ids=None):
+    def predict_for_user(self, user_id: int, item_ids: Optional[List[int]] = None) -> Dict[int, float]:
         """Predict ratings for a user"""
         if user_id not in self.user_id_to_idx:
             logger.warning(f"User {user_id} not in training data")
@@ -75,7 +77,7 @@ class FunkSVD:
             item_ids = self.item_ids
 
         user_idx = self.user_id_to_idx[user_id]
-        predictions = {}
+        predictions: Dict[int, float] = {}
 
         for item_id in item_ids:
             if item_id in self.item_id_to_idx:
@@ -84,13 +86,12 @@ class FunkSVD:
 
         return predictions
 
-    def fit(self, train_data, test_data=None):
-        """Train the model using DataFrame inputs directly"""
+    def fit(self, train_data: pd.DataFrame, test_data: Optional[pd.DataFrame] = None) -> None:
+        """Train the model using DataFrame inputs"""
         # Initialize factors from DataFrame
         self.initialize_factors(train_data)
 
-        # Convert to optimized format for computation-intensive parts only
-        # This maintains the DataFrame interface while optimizing for the training loop
+        # Convert to optimized format for training
         train_ratings = list(train_data[['UserId', 'BGGId', 'Rating']].itertuples(index=False, name=None))
 
         test_ratings = None
@@ -127,9 +128,7 @@ class FunkSVD:
                 last_train_rmse = train_rmse
                 last_test_err = test_err
 
-        return self
-
-    def update_factor(self, factor_idx, indices, ratings):
+    def update_factor(self, factor_idx: int, indices: List[int], ratings: List[Tuple[int, int, float]]) -> float:
         """Update a factor using stochastic gradient descent"""
         for idx in indices:
             user_id, item_id, rating = ratings[idx]
@@ -153,7 +152,8 @@ class FunkSVD:
 
         return self.calculate_rmse(ratings, factor_idx)
 
-    def finished(self, iterations, last_err, current_err, last_test_err=float('inf'), test_err=float('inf')):
+    def finished(self, iterations: int, last_err: float, current_err: float,
+                 last_test_err: float = float('inf'), test_err: float = float('inf')) -> bool:
         """Determine if training should stop based on convergence or test error increase"""
 
         # Check max iterations
@@ -163,17 +163,17 @@ class FunkSVD:
 
         # Check convergence
         if abs(last_err - current_err) < self.stop_threshold:
-            logger.info(f'Finished training: converged (improvement={last_err - current_err:.6f})')
+            logger.info(f'Finished training: converged (improvement={last_err - current_err:.4f})')
             return True
 
         # Check for overfitting
         if test_err > last_test_err and iterations > 1:
-            logger.info(f'Early stopping: Test RMSE increased from {last_test_err:.6f} to {test_err:.6f}')
+            logger.info(f'Early stopping: Test RMSE increased from {last_test_err:.6f} to {test_err:.4f}')
             return True
 
         return False
 
-    def calculate_rmse(self, ratings, factor_idx):
+    def calculate_rmse(self, ratings: List[Tuple[int, int, float]], factor_idx: int) -> float:
         """Calculate RMSE for given data"""
         squared_sum = 0
         count = len(ratings)
@@ -186,7 +186,7 @@ class FunkSVD:
 
         return np.sqrt(squared_sum / count)
 
-    def add_or_get_user(self, user_id=None):
+    def add_or_get_user(self, user_id: Optional[int] = None) -> Tuple[int, int, bool]:
         """Add a new user or get existing user index."""
         if user_id is None:
             user_id = max(self.user_ids) + 1 if self.user_ids else 1
@@ -211,7 +211,7 @@ class FunkSVD:
 
         return user_id, user_idx, is_new_user
 
-    def update_user_factors(self, user_idx, item_indices, ratings):
+    def update_user_factors(self, user_idx: int, item_indices: List[int], ratings: np.ndarray) -> bool:
         """Update user latent factors based on their ratings."""
         item_biases = self.item_bias[item_indices]
         bias_adjusted_ratings = ratings - self.global_mean - item_biases
@@ -238,7 +238,7 @@ class FunkSVD:
             self.user_factors[user_idx] = np.mean(item_factors_subset, axis=0)
             return False
 
-    def save_model(self, save_path):
+    def save_model(self, save_path: Union[str, Path]) -> None:
         """
         Save model to disk, unless save_path is None
         """
@@ -261,7 +261,7 @@ class FunkSVD:
         }
         np.save(save_path / 'metadata.npy', metadata)
 
-    def load_model(self, model_path):
+    def load_model(self, model_path: Union[str, Path]) -> None:
         """
         Load model data into an existing FunkSVD instance
         """
@@ -280,4 +280,3 @@ class FunkSVD:
         self.n_factors = metadata['n_factors']
         self.user_ids = metadata['user_ids']
         self.item_ids = metadata['item_ids']
-        return self
