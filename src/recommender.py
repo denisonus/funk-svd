@@ -90,39 +90,64 @@ class GameRecommender:
             save_model(self.model, model_path, self.model.n_factors - 1, True)
         return self
 
-    def _update_train_data(self, ratings_df, user_id):
-        """Helper method to update training data with new ratings"""
+    def add_user_ratings(self, ratings, user_id=None):
+        """
+        Add or update user ratings with simplified latent factor learning.
+
+        Args:
+            ratings: DataFrame or list of ratings with 'BGGId' and 'Rating' columns
+            user_id: Optional user ID. If None, creates a new user.
+
+        Returns:
+            tuple: (success, user_id, is_new_user)
+        """
+        # Convert and validate ratings
+        ratings_df = self._prepare_ratings(ratings)
+        if ratings_df.empty:
+            return False, None, False
+
+        # Let the model handle user creation/retrieval
+        user_id, user_idx, is_new_user = self.model.add_or_get_user(user_id)
+
+        # Let the model update user factors
+        item_indices = [self.model.item_id_to_idx[game_id] for game_id in ratings_df['BGGId']]
+        actual_ratings = ratings_df['Rating'].values
+        success = self.model.update_user_factors(user_idx, item_indices, actual_ratings)
+
+        # Update training data (stays in GameRecommender)
+        self._update_training_data(user_id, ratings_df)
+
+        return success, user_id, is_new_user
+
+    def _prepare_ratings(self, ratings):
+        """Prepare and validate ratings data."""
+        ratings_df = self._ensure_dataframe(ratings)
+
+        # Filter for valid game IDs that exist in our model
+        valid_game_ids = set(self.model.item_id_to_idx.keys())
+        return ratings_df[ratings_df['BGGId'].isin(valid_game_ids)]
+
+    def _update_training_data(self, user_id, ratings_df):
+        """Update internal training data with new ratings."""
+        ratings_to_add = ratings_df.copy()
+        ratings_to_add['UserId'] = user_id
+        if 'Username' not in ratings_to_add.columns:
+            ratings_to_add['Username'] = f'user_{user_id}'
+
+        # Ensure train_data exists
         if self.train_data is None:
             self.train_data = pd.DataFrame(columns=['UserId', 'BGGId', 'Rating', 'Username'])
 
-        # Add user_id column if it doesn't exist
-        if 'UserId' not in ratings_df.columns:
-            ratings_df = ratings_df.copy()
-            ratings_df['UserId'] = user_id
-
-        # Add Username column if it doesn't exist
-        if 'Username' not in ratings_df.columns:
-            ratings_df['Username'] = f'user_{user_id}'
-
-        # Append to DataFrame
-        self.train_data = pd.concat([self.train_data, ratings_df], ignore_index=True)
-
-    def add_user_ratings(self, ratings, user_id=None):
-        """Add ratings from a user to the model."""
-        if not self.model:
-            raise ValueError("Model must be trained or loaded before adding ratings")
-
-        # Convert ratings to DataFrame if needed
-        ratings_df = pd.DataFrame(ratings) if not isinstance(ratings, pd.DataFrame) else ratings
-
-        # Add ratings to the model
-        success, user_id, is_new_user = self.model.add_ratings(ratings_df, user_id)
-
-        # Update internal training data if successful
-        if success:
-            self._update_train_data(ratings_df, user_id)
-
-        return success, user_id, is_new_user
+        # Remove existing ratings for this user-item pair before adding new ones
+        if not self.train_data.empty:
+            user_items = set(zip(ratings_to_add['UserId'], ratings_to_add['BGGId']))
+            mask = ~self.train_data.apply(
+                lambda row: (row['UserId'], row['BGGId']) in user_items, axis=1
+            )
+            self.train_data = pd.concat([self.train_data[mask], ratings_to_add],
+                                        ignore_index=True)
+        else:
+            self.train_data = ratings_to_add
 
     @staticmethod
     def get_popular_recommendations(train_data, n=10):
