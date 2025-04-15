@@ -4,7 +4,7 @@ from typing import Dict, List, Optional, Union, Tuple, Any
 import numpy as np
 import pandas as pd
 
-from src.funk_svd import FunkSVD
+from src.models.funk_svd import FunkSVD
 
 
 class GameRecommender:
