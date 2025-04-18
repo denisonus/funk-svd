@@ -128,7 +128,7 @@ class FunkSVD:
                 last_train_rmse = train_rmse
                 last_test_err = test_err
 
-    def update_factor(self, factor_idx: int, indices: List[int], ratings: List[Tuple[int, int, float]]) -> float:
+    def update_factor(self, factor_idx: int, indices: List[int], ratings: List[Tuple]) -> float:
         """Update a factor using stochastic gradient descent"""
         for idx in indices:
             user_id, item_id, rating = ratings[idx]
@@ -158,22 +158,22 @@ class FunkSVD:
 
         # Check max iterations
         if iterations >= self.max_iterations:
-            logger.info(f'Finished training: reached max iterations ({iterations})')
+            logger.debug(f'Finished training: reached max iterations ({iterations})')
             return True
 
         # Check convergence
         if abs(last_err - current_err) < self.stop_threshold:
-            logger.info(f'Finished training: converged (improvement={last_err - current_err:.4f})')
+            logger.debug(f'Finished training: converged (improvement={last_err - current_err:.6f})')
             return True
 
         # Check for overfitting
         if test_err > last_test_err and iterations > 1:
-            logger.info(f'Early stopping: Test RMSE increased from {last_test_err:.6f} to {test_err:.4f}')
+            logger.info(f'Early stopping: Test RMSE increased from {last_test_err:.6f} to {test_err:.6f}')
             return True
 
         return False
 
-    def calculate_rmse(self, ratings: List[Tuple[int, int, float]], factor_idx: int) -> float:
+    def calculate_rmse(self, ratings: List[Tuple], factor_idx: int) -> float:
         """Calculate RMSE for given data"""
         squared_sum = 0
         count = len(ratings)
@@ -244,7 +244,7 @@ class FunkSVD:
         """
         save_path = Path(save_path)
         save_path.mkdir(parents=True, exist_ok=True)
-        logger.info(f"Saving model to {save_path}")
+        logger.debug(f"Saving model to {save_path}")
 
         np.save(save_path / 'user_factors.npy', self.user_factors)
         np.save(save_path / 'item_factors.npy', self.item_factors)
@@ -266,7 +266,7 @@ class FunkSVD:
         Load model data into an existing FunkSVD instance
         """
         model_path = Path(model_path)
-        logger.info(f"Loading model from {model_path}")
+        logger.debug(f"Loading model from {model_path}")
 
         self.user_factors = np.load(model_path / 'user_factors.npy')
         self.item_factors = np.load(model_path / 'item_factors.npy')
@@ -280,3 +280,4 @@ class FunkSVD:
         self.n_factors = metadata['n_factors']
         self.user_ids = metadata['user_ids']
         self.item_ids = metadata['item_ids']
+
