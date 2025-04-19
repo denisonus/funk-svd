@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 
 from src.models.funk_svd import FunkSVD
+from src.models.evaluation import evaluate_recommendations
 
 
 class GameRecommender:
@@ -42,6 +43,9 @@ class GameRecommender:
 
     def load(self, model_path: str) -> None:
         self.model.load_model(model_path)
+
+    def evaluate(self, test_data: pd.DataFrame) -> Dict[str, Dict[int, float]]:
+        return evaluate_recommendations(model=self.model, test_data=test_data)
 
     def add_ratings(self, ratings: List[Dict[str, Any]], user_id: Optional[int] = None) -> Tuple[
         bool, Optional[int], bool]:
