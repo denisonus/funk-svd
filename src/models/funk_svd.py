@@ -154,20 +154,18 @@ class FunkSVD:
 
     def finished(self, iterations: int, last_err: float, current_err: float,
                  last_test_err: float = float('inf'), test_err: float = float('inf')) -> bool:
-        """Determine if training should stop based on convergence or test error increase"""
-
-        # Check max iterations
+        # Maximum iterations check
         if iterations >= self.max_iterations:
             logger.debug(f'Finished training: reached max iterations ({iterations})')
             return True
 
-        # Check convergence
+        # Convergence check
         if abs(last_err - current_err) < self.stop_threshold:
             logger.debug(f'Finished training: converged (improvement={last_err - current_err:.6f})')
             return True
 
         # Check for overfitting
-        if test_err > last_test_err and iterations > 1:
+        if test_err > last_test_err * 1.005 and iterations > 5:
             logger.info(f'Early stopping: Test RMSE increased from {last_test_err:.6f} to {test_err:.6f}')
             return True
 
@@ -185,6 +183,19 @@ class FunkSVD:
             squared_sum += (pred - rating) ** 2
 
         return np.sqrt(squared_sum / count)
+
+    def calculate_mae(self, ratings: List[Tuple], factor_idx: int) -> float:
+        """Calculate MAE for given data"""
+        abs_sum = 0
+        count = len(ratings)
+
+        for user_id, movie_id, rating in ratings:
+            u = self.user_id_to_idx[user_id]
+            i = self.item_id_to_idx[movie_id]
+            pred = self.predict(u, i, factor_idx + 1)
+            abs_sum += abs(pred - rating)
+
+        return abs_sum / count
 
     def add_or_get_user(self, user_id: Optional[int] = None) -> Tuple[int, int, bool]:
         """Add a new user or get existing user index."""
