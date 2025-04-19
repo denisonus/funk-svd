@@ -1,5 +1,4 @@
-from pathlib import Path
-from typing import Dict, List, Optional, Union, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any
 
 import numpy as np
 import pandas as pd
@@ -8,16 +7,12 @@ from src.models.funk_svd import FunkSVD
 
 
 class GameRecommender:
-    def __init__(self, train_data: pd.DataFrame, games_data_path: Optional[Union[str, Path]] = None) -> None:
+    def __init__(self, train_data: pd.DataFrame, games_data: Optional[pd.DataFrame] = None) -> None:
         self.model = FunkSVD()
         self.train_data = train_data
         self.games_data = None
-        if games_data_path:
-            self.load_games_data(games_data_path)
-
-    def load_games_data(self, games_data_path: Union[str, Path]) -> None:
-        games_df = pd.read_csv(games_data_path)
-        self.games_data = {int(row['BGGId']): row.to_dict() for _, row in games_df.iterrows()}
+        if games_data is not None:
+            self.games_data = {int(row['BGGId']): row.to_dict() for _, row in games_data.iterrows()}
 
     def get_predictions(self, user_id: int, item_ids: Optional[List[int]] = None) -> Dict[int, float]:
         return self.model.predict_for_user(user_id, item_ids)

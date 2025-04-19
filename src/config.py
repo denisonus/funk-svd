@@ -7,6 +7,9 @@ BASE_DIR = Path(__file__).parent.parent
 MODELS_DIR = BASE_DIR / 'data' / 'models'
 FUNK_SVD_MODEL_DIR = MODELS_DIR / 'funk_svd'
 GRID_SEARCH_DIR = MODELS_DIR / 'grid_search'
+
+TRAIN_DATA_PATH = BASE_DIR / 'data' / 'processed' / 'user_ratings_train_100K.csv'
+TEST_DATA_PATH = BASE_DIR / 'data' / 'processed' / 'user_ratings_test_100K.csv'
 GAMES_DATA_PATH = BASE_DIR / 'data' / 'raw' / 'games.csv'
 
 # Default FunkSVD parameters
