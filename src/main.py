@@ -1,8 +1,9 @@
+from pprint import pprint
+
 import numpy as np
 
-from src.config import GAMES_DATA_PATH, FUNK_SVD_MODEL_DIR
+from src.config import FUNK_SVD_MODEL_DIR
 from src.data.load_dataset import get_train_data, get_test_data, get_games_data
-from src.models.evaluation import evaluate_recommendations
 from src.recommender import GameRecommender
 
 train_data = get_train_data()
@@ -14,4 +15,4 @@ print(f"Testing: {len(test_data)} samples from {len(np.unique(test_data['UserId'
 recommender = GameRecommender(train_data, games_data)
 recommender.train(test_data)
 recommender.save(FUNK_SVD_MODEL_DIR)
-print(recommender.evaluate(test_data))
+pprint(recommender.evaluate(test_data))

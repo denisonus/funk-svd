@@ -2,6 +2,7 @@ from typing import Dict, List, Optional, Tuple, Any
 
 import numpy as np
 import pandas as pd
+from loguru import logger # Import logger
 
 from src.models.funk_svd import FunkSVD
 from src.models.evaluation import evaluate_recommendations
@@ -49,33 +50,67 @@ class GameRecommender:
 
     def add_ratings(self, ratings: List[Dict[str, Any]], user_id: Optional[int] = None) -> Tuple[
         bool, Optional[int], bool]:
-        ratings_df = self._process_ratings(ratings)
+        """
+        Adds new ratings, updates the internal training data, and triggers an incremental update of the model.
+
+        Args:
+            ratings: A list of dictionaries, each containing 'BGGId' and 'Rating'.
+            user_id: The ID of the user providing the ratings. If None, a new user ID is assigned.
+
+        Returns:
+            A tuple containing:
+            - bool: Success status of the model update.
+            - Optional[int]: The user ID (assigned or provided).
+            - bool: Whether the user was newly added.
+        """
+        if not ratings:
+            logger.warning("add_ratings called with empty ratings list.")
+            return False, user_id, False # Indicate no update occurred
+
+        # 1. Ensure user exists and get their ID/index
+        # Note: add_or_get_user now handles initialization details
+        processed_user_id, _, is_new_user = self.model.add_or_get_user(user_id)
+
+        # 2. Process and validate ratings
+        ratings_df = self._prepare_ratings_df(ratings, processed_user_id)
         if ratings_df.empty:
-            return False, None, False
+            logger.warning(f"No valid ratings to process for user {processed_user_id}.")
+            # Return True if a new user was potentially added, even if no ratings were valid
+            return False, processed_user_id, is_new_user
 
-        user_id, user_idx, is_new_user = self.model.add_or_get_user(user_id)
-        item_indices = [self.model.item_id_to_idx[game_id] for game_id in ratings_df['BGGId']]
-        if not item_indices:
-            return False, user_id, is_new_user
+        # 3. Update internal training data (optional but good practice)
+        self._update_internal_train_data(ratings_df)
 
-        success = self.model.update_user_factors(user_idx, item_indices, ratings_df['Rating'].values)
-        return success, user_id, is_new_user
+        # 4. Trigger incremental model update
+        success = self.model.update_with_ratings(ratings_df)
 
-    def _process_ratings(self, ratings: List[Dict[str, Any]]) -> pd.DataFrame:
-        """Process ratings and update training data, avoiding duplicates."""
+        return success, processed_user_id, is_new_user
+
+    def _prepare_ratings_df(self, ratings: List[Dict[str, Any]], user_id: int) -> pd.DataFrame:
+        """Creates a DataFrame from the ratings list, assigns user ID, and filters invalid items."""
         ratings_df = pd.DataFrame(ratings)
-        if not self.model.item_id_to_idx or ratings_df.empty:
-            return pd.DataFrame()
+        if ratings_df.empty or 'BGGId' not in ratings_df.columns or 'Rating' not in ratings_df.columns:
+             logger.error("Invalid ratings format provided.")
+             return pd.DataFrame()
 
-        valid_ids = set(self.model.item_id_to_idx.keys())
-        ratings_df = ratings_df[ratings_df['BGGId'].isin(valid_ids)]
-        if ratings_df.empty:
-            return ratings_df
+        ratings_df['UserId'] = user_id
+        # Ensure correct types
+        ratings_df['BGGId'] = ratings_df['BGGId'].astype(int)
+        ratings_df['Rating'] = ratings_df['Rating'].astype(float)
 
-        combined = pd.concat([self.train_data, ratings_df], ignore_index=True)
+        return ratings_df[['UserId', 'BGGId', 'Rating']] # Ensure correct column order/selection
+
+    def _update_internal_train_data(self, new_ratings_df: pd.DataFrame) -> None:
+        """Appends new ratings to the recommender's training data, handling duplicates."""
+        if new_ratings_df.empty:
+            return
+
+        # Use concat and drop_duplicates for efficiency
+        combined = pd.concat([self.train_data, new_ratings_df], ignore_index=True)
+        # Keep the 'last' entry in case of duplicate user-item pairs, effectively updating the rating
         self.train_data = combined.drop_duplicates(subset=['UserId', 'BGGId'], keep='last')
+        logger.debug(f"Updated internal training data. New size: {len(self.train_data)}")
 
-        return ratings_df
 
     @staticmethod
     def get_popular_recommendations(train_data: pd.DataFrame, n: int = 10) -> List[Tuple[int, float]]:
@@ -83,3 +118,4 @@ class GameRecommender:
         stats['popularity'] = stats['avg_rating'] * np.log1p(stats['count'])
         top_items = stats.sort_values('popularity', ascending=False).head(n)
         return [(int(idx), float(row['popularity'])) for idx, row in top_items.iterrows()]
+

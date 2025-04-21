@@ -15,12 +15,16 @@ class FunkSVD:
         params.update(kwargs)
 
         self.n_factors: int = params['n_factors']
-        self.max_iterations: int = params['max_iterations']
+        self.max_iterations: int = params['max_iterations'] # Max iterations for full fit
         self.stop_threshold: float = params['stop_threshold']
         self.learn_rate: float = params['learn_rate']
         self.bias_learn_rate: float = params['bias_learn_rate']
         self.regularization: float = params['regularization']
         self.bias_reg: float = params['bias_reg']
+        # Add a parameter for incremental updates
+        self.incremental_learn_rate: float = params.get('incremental_learn_rate', self.learn_rate * 0.5) # Use a smaller LR for updates
+        self.incremental_bias_learn_rate: float = params.get('incremental_bias_learn_rate', self.bias_learn_rate * 0.5)
+        self.incremental_iterations: int = params.get('incremental_iterations', 5) # Number of passes over new data
 
         # Model state
         self.global_mean: float = 0.0
@@ -111,7 +115,7 @@ class FunkSVD:
 
             while not finished:
                 # Update model
-                train_rmse = self.update_factor(factor, indices, train_ratings)
+                train_rmse = self.update_factor(factor, indices, train_ratings, self.learn_rate, self.bias_learn_rate)
 
                 # Calculate test error if available
                 if test_ratings:
@@ -128,10 +132,14 @@ class FunkSVD:
                 last_train_rmse = train_rmse
                 last_test_err = test_err
 
-    def update_factor(self, factor_idx: int, indices: List[int], ratings: List[Tuple]) -> float:
+    def update_factor(self, factor_idx: int, indices: List[int], ratings: List[Tuple], learn_rate: float, bias_learn_rate: float) -> float:
         """Update a factor using stochastic gradient descent"""
         for idx in indices:
             user_id, item_id, rating = ratings[idx]
+
+            # Check if user/item exists in the current model state before proceeding
+            if user_id not in self.user_id_to_idx or item_id not in self.item_id_to_idx:
+                continue # Skip if user or item is unknown (e.g., during incremental update with new items not yet handled)
 
             u = self.user_id_to_idx[user_id]
             i = self.item_id_to_idx[item_id]
@@ -140,15 +148,15 @@ class FunkSVD:
             err = rating - self.predict(u, i, factor_idx + 1)
 
             # Update bias terms
-            self.user_bias[u] += self.bias_learn_rate * (err - self.bias_reg * self.user_bias[u])
-            self.item_bias[i] += self.bias_learn_rate * (err - self.bias_reg * self.item_bias[i])
+            self.user_bias[u] += bias_learn_rate * (err - self.bias_reg * self.user_bias[u])
+            self.item_bias[i] += bias_learn_rate * (err - self.bias_reg * self.item_bias[i])
 
             # Update factor values
             u_factor = self.user_factors[u][factor_idx]
             i_factor = self.item_factors[i][factor_idx]
 
-            self.user_factors[u][factor_idx] += self.learn_rate * (err * i_factor - self.regularization * u_factor)
-            self.item_factors[i][factor_idx] += self.learn_rate * (err * u_factor - self.regularization * i_factor)
+            self.user_factors[u][factor_idx] += learn_rate * (err * i_factor - self.regularization * u_factor)
+            self.item_factors[i][factor_idx] += learn_rate * (err * u_factor - self.regularization * i_factor)
 
         return self.calculate_rmse(ratings, factor_idx)
 
@@ -198,7 +206,7 @@ class FunkSVD:
         return abs_sum / count
 
     def add_or_get_user(self, user_id: Optional[int] = None) -> Tuple[int, int, bool]:
-        """Add a new user or get existing user index."""
+        """Add a new user or get existing user index. Initializes new users."""
         if user_id is None:
             user_id = max(self.user_ids) + 1 if self.user_ids else 1
             is_new_user = True
@@ -206,48 +214,91 @@ class FunkSVD:
             is_new_user = user_id not in self.user_id_to_idx
 
         if is_new_user:
-            # Add user to model mappings
             user_idx = len(self.user_ids)
             self.user_ids.append(user_id)
             self.user_id_to_idx[user_id] = user_idx
 
-            # Extend user factors and bias arrays
-            self.user_factors = np.vstack([
-                self.user_factors,
-                np.full((1, self.n_factors), 0.1)
-            ])
-            self.user_bias = np.append(self.user_bias, 0)
+            # Initialize new user: Use average bias/factors if available, else defaults
+            new_bias = np.mean(self.user_bias) if self.user_bias is not None and len(self.user_bias) > 0 else 0.0
+            new_factors = np.mean(self.user_factors, axis=0) if self.user_factors is not None and len(self.user_factors) > 0 else np.full((1, self.n_factors), 0.1)
+
+            self.user_factors = np.vstack([self.user_factors, new_factors]) if self.user_factors is not None else new_factors.reshape(1, -1)
+            self.user_bias = np.append(self.user_bias, new_bias) if self.user_bias is not None else np.array([new_bias])
+
+            logger.info(f"Added new user {user_id} with index {user_idx}. Initial bias: {new_bias:.4f}")
         else:
             user_idx = self.user_id_to_idx[user_id]
 
         return user_id, user_idx, is_new_user
 
-    def update_user_factors(self, user_idx: int, item_indices: List[int], ratings: np.ndarray) -> bool:
-        """Update user latent factors based on their ratings."""
-        item_biases = self.item_bias[item_indices]
-        bias_adjusted_ratings = ratings - self.global_mean - item_biases
+    def add_or_get_item(self, item_id: int) -> Tuple[int, int, bool]:
+        """Add a new item or get existing item index. Initializes new items."""
+        is_new_item = item_id not in self.item_id_to_idx
 
-        # Get item factors for rated items
-        item_factors_subset = self.item_factors[item_indices]
-        reg_term = self.regularization * np.eye(self.n_factors)
+        if is_new_item:
+            item_idx = len(self.item_ids)
+            self.item_ids.append(item_id)
+            self.item_id_to_idx[item_id] = item_idx
 
-        try:
-            # Matrix solution: (X^T X + λI)^-1 X^T y
-            user_factors = np.linalg.solve(
-                item_factors_subset.T @ item_factors_subset + reg_term,
-                item_factors_subset.T @ bias_adjusted_ratings
-            )
-            self.user_factors[user_idx] = user_factors
+            # Initialize new item: Use average bias/factors if available, else defaults
+            new_bias = np.mean(self.item_bias) if self.item_bias is not None and len(self.item_bias) > 0 else 0.0
+            # Initialize factors similar to users, using mean of existing item factors
+            new_factors = np.mean(self.item_factors, axis=0) if self.item_factors is not None and len(self.item_factors) > 0 else np.full((1, self.n_factors), 0.1)
 
-            # Update user bias with average error
-            predictions = np.sum(user_factors * item_factors_subset, axis=1)
-            errors = ratings - (self.global_mean + predictions + item_biases)
-            self.user_bias[user_idx] = np.mean(errors)
-            return True
-        except np.linalg.LinAlgError:
-            # Fallback to simple averaging if matrix solution fails
-            self.user_factors[user_idx] = np.mean(item_factors_subset, axis=0)
+            self.item_factors = np.vstack([self.item_factors, new_factors]) if self.item_factors is not None else new_factors.reshape(1, -1)
+            self.item_bias = np.append(self.item_bias, new_bias) if self.item_bias is not None else np.array([new_bias])
+
+            logger.info(f"Added new item {item_id} with index {item_idx}. Initial bias: {new_bias:.4f}")
+        else:
+            item_idx = self.item_id_to_idx[item_id]
+
+        return item_id, item_idx, is_new_item
+
+    def update_with_ratings(self, new_ratings_df: pd.DataFrame) -> bool:
+        """
+        Update model factors and biases using incremental SGD based on new ratings.
+        Handles adding new users and new items.
+        """
+        if new_ratings_df.empty:
+            logger.warning("Received empty DataFrame for incremental update.")
             return False
+
+        # 1. Ensure all users exist, add if necessary
+        for user_id in new_ratings_df['UserId'].unique():
+            self.add_or_get_user(user_id)
+
+        # 2. Ensure all items exist, add if necessary
+        for item_id in new_ratings_df['BGGId'].unique():
+            self.add_or_get_item(item_id)
+
+        # 3. Convert new ratings to the list format used in training
+        # No need to filter items anymore as they are added above
+        new_ratings_tuples = list(new_ratings_df[['UserId', 'BGGId', 'Rating']].itertuples(index=False, name=None))
+
+        if not new_ratings_tuples:
+             logger.warning("No ratings remaining after processing for incremental update.")
+             return False # Could happen if initial df was empty or only had invalid data types
+
+        logger.info(f"Performing incremental SGD update with {len(new_ratings_tuples)} ratings (including potential new users/items)...")
+
+        # 4. Perform SGD updates for a fixed number of iterations on the new data
+        for factor in range(self.n_factors):
+            # Shuffle indices once per factor update pass
+            indices = random.sample(range(len(new_ratings_tuples)), len(new_ratings_tuples))
+            for iteration in range(self.incremental_iterations):
+                rmse = self.update_factor(
+                    factor_idx=factor,
+                    indices=indices, # Use the same shuffled indices for inner iterations
+                    ratings=new_ratings_tuples,
+                    learn_rate=self.incremental_learn_rate,
+                    bias_learn_rate=self.incremental_bias_learn_rate
+                )
+                # Optional: Log progress less frequently or based on condition
+                # if (iteration + 1) % self.incremental_iterations == 0: # Log only at the end of iterations for this factor
+                #    logger.debug(f"Incremental Update: Factor {factor}, Iteration {iteration+1}, Final Batch RMSE: {rmse:.4f}")
+
+        logger.info(f"Incremental SGD update completed. Final RMSE on batch for last factor: {rmse:.4f}") # Log final RMSE
+        return True
 
     def save_model(self, save_path: Union[str, Path]) -> None:
         """
