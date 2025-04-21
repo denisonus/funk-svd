@@ -14,11 +14,11 @@ GAMES_DATA_PATH = BASE_DIR / 'data' / 'raw' / 'games.csv'
 
 # Default FunkSVD parameters
 FUNK_SVD_CONFIG = {
-    'n_factors': 20,
-    'max_iterations': 50,
+    'n_factors': 5,
+    'max_iterations': 100,
     'stop_threshold': 0.001,
     'learn_rate': 0.002,
-    'bias_learn_rate': 0.005,
+    'bias_learn_rate': 0.002,
     'regularization': 0.002,
     'bias_reg': 0.002
 }
@@ -27,10 +27,10 @@ FUNK_SVD_CONFIG = {
 GRID_SEARCH_CONFIG = {
     'save_path': GRID_SEARCH_DIR,
     'load_results': False,
-    'evaluation_k_values': [5, 10, 20],
-    'primary_metric': 'ndcg@10',
+    'evaluation_k_values': [10, 20],
+    'primary_metric': 'ndcg@20',
     'param_grid': {
-        'n_factors': [10, 15, 20],
+        'n_factors': [5, 10],
         'learn_rate': [0.002, 0.005],
         'bias_learn_rate': [0.002, 0.005],
         'regularization': [0.002, 0.005],
@@ -41,59 +41,10 @@ GRID_SEARCH_CONFIG = {
 # Evaluation parameters for metrics calculation
 EVALUATION_CONFIG = {
     'relevance_threshold': 7.0,  # Ratings >= this value are considered relevant
-    'k_values': [5, 10, 20],     # Default k values for evaluation metrics
+    'k_values': [10, 20],     # Default k values for evaluation metrics
 }
 
-# Commented history of previous grid search results
 """
-Best RMSE configurations:
-{
-  "best_rmse": {
-    "value": 1.1644047926090164,
-    "params": {
-      "n_factors": 15,
-      "learn_rate": 0.002,
-      "bias_learn_rate": 0.005,
-      "regularization": 0.002,
-      "bias_reg": 0.01
-    }
-  }
-}
-
-{
-  "value": 1.1640805557088096,
-  "params": {
-    "n_factors": 15,
-    "learn_rate": 0.005,
-    "bias_learn_rate": 0.005,
-    "regularization": 0.005,
-    "bias_reg": 0.01
-  }
-}
-
-Other parameter sets tested:
-{
-  'param_grid': {
-    'n_factors': [6, 9, 12],
-    'learn_rate': [0.01, 0.02],
-    'bias_learn_rate': [0.01, 0.02],
-    'regularization': [0.01, 0.02],
-    'bias_reg': [0.01, 0.02],
-  }
-}
-Best parameters: {'n_factors': 12, 'learn_rate': 0.01, 'bias_learn_rate': 0.01, 'regularization': 0.01, 'bias_reg': 0.01}
-
-{
-  'param_grid': {
-    'n_factors': [10, 20],
-    'learn_rate': [0.005, 0.01],
-    'bias_learn_rate': [0.01, 0.02],
-    'regularization': [0.01, 0.05],
-    'bias_reg': [0.02, 0.1],
-  }
-}
-Best parameters: {'n_factors': 10, 'learn_rate': 0.01, 'bias_learn_rate': 0.01, 'regularization': 0.01, 'bias_reg': 0.02}
-
 Reference parameter sets:
 Params from the book: {'n_factors': 25, 'learn_rate': 0.002, 'bias_learn_rate': 0.005, 'regularization': 0.002, 'bias_reg': 0.002}
 Params from GitHub: {'n_factors': 20, 'learn_rate': 0.01, 'bias_learn_rate': 0.01, 'regularization': 0.02, 'bias_reg': 0.02}
