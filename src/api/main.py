@@ -82,55 +82,6 @@ async def get_recommendations(
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"Error getting recommendations: {str(e)}")
 
-@app.get("/games", response_model=List[GameDetails])
-async def get_games(
-    request: GamesListRequest = Depends(),
-    recommender: GameRecommender = Depends(get_recommender)
-):
-    """Get a paginated list of games with optional filtering and sorting"""
-    games = recommender.get_all_games()
-    
-    # Apply name filter if provided
-    if request.name_filter:
-        games = [g for g in games if request.name_filter.lower() in g.get('Name', '').lower()]
-    
-    # Apply sorting using the helper function
-    games.sort(key=lambda x: get_sort_key(x, request.sort_by.value), reverse=request.sort_desc)
-    
-    # Apply pagination
-    start_idx = (request.page - 1) * request.page_size
-    end_idx = start_idx + request.page_size
-    
-    return games[start_idx:end_idx]
-
-@app.get("/games/{game_id}", response_model=GameDetails)
-async def get_game_details(
-    game_id: int,
-    recommender: GameRecommender = Depends(get_recommender)
-):
-    """Get details for a specific game"""
-    game_details = recommender.get_game_details(game_id)
-    if not game_details:
-        raise HTTPException(status_code=404, detail=f"Game with ID {game_id} not found")
-    return game_details
-
-# Helper function for sorting games
-def get_sort_key(game_dict: Dict[str, Any], sort_field: str) -> Any:
-    """Helper function to get the sorting key for a game dictionary."""
-    if sort_field == SortOption.POPULARITY.value:
-        # Calculate popularity score (example: rating * num_ratings)
-        # Ensure 'NumRatings' exists or provide a default
-        return game_dict.get('AverageRating', 0.0) * game_dict.get('NumRatings', 0) 
-    elif sort_field == SortOption.YEAR.value:
-        return game_dict.get(sort_field, 0)  # Default year to 0
-    elif sort_field == SortOption.RATING.value:
-        return game_dict.get('AverageRating', 0.0) # Use AverageRating for sorting by rating
-    elif sort_field == SortOption.NAME.value:
-        return game_dict.get(sort_field, '') # Default name to empty string
-    else:
-        # Fallback for any other unexpected sort field
-        return game_dict.get(sort_field, '')
-
 @app.post("/ratings", response_model=RatingUpdateResponse)
 async def add_ratings(
     ratings_data: UserRatings, 

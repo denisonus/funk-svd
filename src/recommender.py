@@ -111,20 +111,6 @@ class GameRecommender:
         self.train_data = combined.drop_duplicates(subset=['UserId', 'BGGId'], keep='last')
         logger.debug(f"Updated internal training data. New size: {len(self.train_data)}")
 
-    def get_game_details(self, game_id: int) -> Optional[Dict[str, Any]]:
-        """Retrieves details for a specific game ID."""
-        if self.games_data and game_id in self.games_data:
-            return self.games_data[game_id]
-        logger.warning(f"Game ID {game_id} not found in games_data.")
-        return None
-
-    def get_all_games(self) -> List[Dict[str, Any]]:
-        """Retrieves details for all games."""
-        if self.games_data:
-            return list(self.games_data.values())
-        logger.warning("No games_data loaded.")
-        return []
-
     @staticmethod
     def get_popular_recommendations(train_data: pd.DataFrame, n: int = 10) -> List[Tuple[int, float]]:
         stats = train_data.groupby('BGGId').agg(avg_rating=('Rating', 'mean'), count=('Rating', 'count'))

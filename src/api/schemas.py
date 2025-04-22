@@ -1,6 +1,5 @@
 from pydantic import BaseModel, Field
 from typing import Dict, List, Optional, Any
-from enum import Enum
 
 # Define data models for API
 class Rating(BaseModel):
@@ -24,14 +23,6 @@ class RecommendationRequest(BaseModel):
     num_recommendations: int = Field(10, ge=1, le=100, description="Number of recommendations to return")
     include_details: bool = Field(True, description="Whether to include game details in the response")
     
-class GameDetails(BaseModel):
-    BGGId: int
-    Name: str
-    YearPublished: Optional[int] = None
-    Description: Optional[str] = None
-    ImageURL: Optional[str] = None
-    AverageRating: Optional[float] = None
-    
 class PopularRecommendationRequest(BaseModel):
     num_recommendations: int = Field(10, ge=1, le=100, description="Number of popular games to return")
     include_details: bool = Field(True, description="Whether to include game details in the response")
@@ -48,18 +39,3 @@ class RatingUpdateResponse(BaseModel):
     user_id: int
     is_new_user: bool
     num_ratings_processed: int
-    
-# Define category for sort options
-class SortOption(str, Enum):
-    POPULARITY = "popularity"
-    RATING = "rating"
-    YEAR = "year"
-    NAME = "name"
-    
-# Games list request
-class GamesListRequest(BaseModel):
-    page: int = Field(1, ge=1, description="Page number")
-    page_size: int = Field(20, ge=1, le=100, description="Items per page")
-    sort_by: SortOption = Field(SortOption.POPULARITY, description="Sort field")
-    sort_desc: bool = Field(True, description="Sort descending")
-    name_filter: Optional[str] = Field(None, description="Filter by game name")
