@@ -3,3 +3,8 @@ loguru
 pandas
 matplotlib
 seaborn
+fastapi
+uvicorn[standard]
+pydantic
+python-multipart
+asyncio
