@@ -16,11 +16,9 @@ from src.models.funk_svd import FunkSVD
 
 
 def _evaluate_params_worker(params: Dict[str, Any], run_id: str) -> Dict[str, Any]:
-    """Worker function to evaluate a single parameter combination in a separate process"""
-
+    """Worker function to evaluate a single parameter combination"""
     logger.info(f"[{run_id}] Testing parameters: {params}")
 
-    # Load training data and train model
     train_data = get_train_data()
     test_data = get_test_data()
     test_tuples = list(test_data[['UserId', 'BGGId', 'Rating']].itertuples(index=False, name=None))
@@ -29,23 +27,18 @@ def _evaluate_params_worker(params: Dict[str, Any], run_id: str) -> Dict[str, An
     model = FunkSVD(**params)
     model.fit(train_data, test_data)
 
-    # Traditional error metrics for rating prediction
     test_rmse = model.calculate_rmse(test_tuples, model.n_factors - 1)
     test_mae = model.calculate_mae(test_tuples, model.n_factors - 1)
     train_time = time.time() - start_time
 
-    # Calculate recommendation metrics (Precision, Recall, NDCG, Coverage)
     recommendation_metrics = evaluate_recommendations(model, test_data)
 
-    # Save model to a temp file
     model_path = f"temp_model_{run_id}"
     model.save_model(model_path)
 
-    # Merge all metrics together for result
     result = {'run_id': run_id, 'params': params, 'test_rmse': test_rmse, 'test_mae': test_mae,
               'training_time': train_time, 'model_path': model_path}
 
-    # Add recommendation metrics to result
     for metric_name, values_by_k in recommendation_metrics.items():
         for k, value in values_by_k.items():
             result[f'{metric_name}@{k}'] = value
@@ -66,21 +59,17 @@ class FunkSVDGridSearch:
         self.evaluation_k_values = evaluation_k_values
         self.primary_metric = primary_metric
 
-        # Set up metrics to track
         self.metrics_to_track = ['test_rmse', 'test_mae'] + [f'{m}@{k}' for m in
                                                              ['precision', 'recall', 'ndcg', 'coverage'] for k in
                                                              self.evaluation_k_values]
 
-        # Initialize best results dictionary
         self.best_results = self._initialize_best_results()
 
-        # Validate primary metric
         valid_metrics = self.metrics_to_track
         if self.primary_metric not in valid_metrics:
             logger.warning(f"Invalid primary metric: {primary_metric}. Using 'test_rmse'")
             self.primary_metric = 'test_rmse'
 
-        # Create save directory and load existing results if needed
         self.save_path.mkdir(parents=True, exist_ok=True)
 
         if load_results and self.results_path.exists():
@@ -111,9 +100,9 @@ class FunkSVDGridSearch:
 
     def _is_better_value(self, metric: str, current_value: float, best_value: float) -> bool:
         """Check if current metric value is better than previous best"""
-        if 'rmse' in metric or 'mae' in metric:  # Lower is better
+        if 'rmse' in metric or 'mae' in metric:
             return current_value < best_value
-        else:  # Higher is better
+        else:
             return current_value > best_value
 
     def _update_best_for_metric(self, metric: str, results: List[Dict[str, Any]]) -> None:
@@ -122,22 +111,18 @@ class FunkSVDGridSearch:
         if not relevant_results:
             return
 
-        if 'rmse' in metric or 'mae' in metric:  # Lower is better
+        if 'rmse' in metric or 'mae' in metric:
             best_result = min(relevant_results, key=lambda x: x.get(metric, float('inf')))
-        else:  # Higher is better
+        else:
             best_result = max(relevant_results, key=lambda x: x.get(metric, float('-inf')))
 
         self.best_results[metric] = {'value': best_result[metric], 'params': best_result['params']}
 
     def _update_best_from_result(self, result: Dict[str, Any]) -> Tuple[bool, float]:
-        """
-        Update best metrics from a single result
-        Returns: (is_primary_improved, best_primary_value)
-        """
+        """Update best metrics from a single result"""
         is_primary_improved = False
         primary_value = self.best_results[self.primary_metric]['value']
 
-        # Check if this result improves the primary metric
         if self.primary_metric in result:
             current_value = result[self.primary_metric]
             if self._is_better_value(self.primary_metric, current_value, primary_value):
@@ -146,7 +131,6 @@ class FunkSVDGridSearch:
                 primary_value = current_value
                 is_primary_improved = True
 
-        # Update best results for all other metrics
         for metric in self.metrics_to_track:
             if metric == self.primary_metric or metric not in result:
                 continue
@@ -164,7 +148,6 @@ class FunkSVDGridSearch:
         with open(self.results_path, 'w') as f:
             json.dump({'results': self.results}, f, indent=2)
 
-        # Save the best results summary
         summary_metrics = {metric: {'value': values['value'], 'params': values['params']} for metric, values in
                            self.best_results.items()}
 
@@ -182,12 +165,10 @@ class FunkSVDGridSearch:
 
     def run(self) -> Dict[str, Any]:
         """Run grid search and return best parameters"""
-        # Generate all parameter combinations
         param_names = list(self.param_grid.keys())
         param_values = list(self.param_grid.values())
         all_combinations = [dict(zip(param_names, combo)) for combo in itertools.product(*param_values)]
 
-        # Skip already tested combinations
         tested_params = [result['params'] for result in self.results]
         remaining_combinations = [params for params in all_combinations if params not in tested_params]
 
@@ -200,7 +181,6 @@ class FunkSVDGridSearch:
             return self.best_results[self.primary_metric]['params']
 
         with concurrent.futures.ProcessPoolExecutor(max_workers=self.n_jobs) as executor:
-            # Submit all tasks
             all_futures = [executor.submit(_evaluate_params_worker, params, f"run_{len(tested_params) + i + 1}") for
                            i, params in enumerate(remaining_combinations)]
 
@@ -211,10 +191,8 @@ class FunkSVDGridSearch:
                     model_path = result.pop('model_path', None)
                     self.results.append(result)
 
-                    # Update the best metrics and check if primary metric improved
                     is_primary_improved, best_primary_value = self._update_best_from_result(result)
 
-                    # Save best model if primary metric improved
                     if is_primary_improved and model_path and os.path.exists(model_path):
                         best_model = FunkSVD()
                         best_model.load_model(model_path)
@@ -225,17 +203,14 @@ class FunkSVDGridSearch:
                 except Exception as e:
                     logger.error(f"Error evaluating parameters: {e}")
                 finally:
-                    # Clean up temporary model file
                     if model_path and os.path.exists(model_path):
                         shutil.rmtree(model_path)
 
-                # Save progress after each run
                 self._save_results()
 
         logger.info(
             f"Grid search complete. Primary metric ({self.primary_metric}): {self.best_results[self.primary_metric]['value']:.4f}")
 
-        # Return best parameters based on primary metric
         return self.best_results[self.primary_metric]['params']
 
 

@@ -5,11 +5,7 @@ from loguru import logger
 
 def preprocess_data(input_file, output_dir, target_ratings=100000, file_suffix="_100K", train_ratio=0.8, random_seed=42,
                     min_user_ratings=20):
-    """
-    Preprocess boardgame rating data for recommendation system.
-    Ensures that in the resulting train set, all users have at least min_user_ratings ratings,
-    no cold start users/items in test, and original sparsity and rating count are preserved as much as possible.
-    """
+    """Preprocess boardgame rating data for recommendation system."""
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
@@ -41,7 +37,6 @@ def preprocess_data(input_file, output_dir, target_ratings=100000, file_suffix="
     
     # Categorize users by rating frequency
     user_rating_counts = df["UserId"].value_counts()
-    # Define rating frequency categories using quantiles
     high_threshold = user_rating_counts.quantile(0.7)
     low_threshold = user_rating_counts.quantile(0.3)
     
@@ -53,7 +48,7 @@ def preprocess_data(input_file, output_dir, target_ratings=100000, file_suffix="
     
     logger.info(f"User categories: {len(high_raters)} high, {len(med_raters)} medium, {len(low_raters)} low")
     
-    # Set sampling ratios for different user categories (adjust if needed)
+    # Set sampling ratios for different user categories
     high_ratio, med_ratio, low_ratio = 0.4, 0.4, 0.2
     
     # Target number of users from each category
@@ -94,7 +89,6 @@ def preprocess_data(input_file, output_dir, target_ratings=100000, file_suffix="
         n_ratings = len(user_data)
         n_train = max(min_user_ratings, int(n_ratings * train_ratio))
         
-        # Handle case where we can't meet both constraints
         if n_train >= n_ratings:
             train_df = pd.concat([train_df, user_data])
         else:

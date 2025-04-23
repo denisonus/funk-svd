@@ -3,7 +3,7 @@ from pathlib import Path
 # Base directory
 BASE_DIR = Path(__file__).parent.parent
 
-# Model paths (as relative paths)
+# Model paths
 MODELS_DIR = BASE_DIR / 'data' / 'models'
 FUNK_SVD_MODEL_DIR = MODELS_DIR / 'funk_svd'
 GRID_SEARCH_DIR = MODELS_DIR / 'grid_search'
@@ -23,7 +23,6 @@ FUNK_SVD_CONFIG = {
     'bias_reg': 0.002
 }
 
-# Grid search parameters
 GRID_SEARCH_CONFIG = {
     'save_path': GRID_SEARCH_DIR,
     'load_results': False,
@@ -38,10 +37,9 @@ GRID_SEARCH_CONFIG = {
     }
 }
 
-# Evaluation parameters for metrics calculation
 EVALUATION_CONFIG = {
-    'relevance_threshold': 7.0,  # Ratings >= this value are considered relevant
-    'k_values': [10, 20],     # Default k values for evaluation metrics
+    'relevance_threshold': 7.0,  # Minimum rating to be considered relevant
+    'k_values': [10, 20],
 }
 
 """

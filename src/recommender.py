@@ -2,7 +2,7 @@ from typing import Dict, List, Optional, Tuple, Any
 
 import numpy as np
 import pandas as pd
-from loguru import logger # Import logger
+from loguru import logger
 
 from src.models.funk_svd import FunkSVD
 from src.models.evaluation import evaluate_recommendations
@@ -51,37 +51,21 @@ class GameRecommender:
     def add_ratings(self, ratings: List[Dict[str, Any]], user_id: Optional[int] = None) -> Tuple[
         bool, Optional[int], bool]:
         """
-        Adds new ratings, updates the internal training data, and triggers an incremental update of the model.
-
-        Args:
-            ratings: A list of dictionaries, each containing 'BGGId' and 'Rating'.
-            user_id: The ID of the user providing the ratings. If None, a new user ID is assigned.
-
-        Returns:
-            A tuple containing:
-            - bool: Success status of the model update.
-            - Optional[int]: The user ID (assigned or provided).
-            - bool: Whether the user was newly added.
+        Adds new ratings and triggers an incremental update of the model.
         """
         if not ratings:
             logger.warning("add_ratings called with empty ratings list.")
-            return False, user_id, False # Indicate no update occurred
+            return False, user_id, False
 
-        # 1. Ensure user exists and get their ID/index
-        # Note: add_or_get_user now handles initialization details
         processed_user_id, _, is_new_user = self.model.add_or_get_user(user_id)
 
-        # 2. Process and validate ratings
         ratings_df = self._prepare_ratings_df(ratings, processed_user_id)
         if ratings_df.empty:
             logger.warning(f"No valid ratings to process for user {processed_user_id}.")
-            # Return True if a new user was potentially added, even if no ratings were valid
             return False, processed_user_id, is_new_user
 
-        # 3. Update internal training data (optional but good practice)
         self._update_internal_train_data(ratings_df)
 
-        # 4. Trigger incremental model update
         success = self.model.update_with_ratings(ratings_df)
 
         return success, processed_user_id, is_new_user
@@ -94,20 +78,17 @@ class GameRecommender:
              return pd.DataFrame()
 
         ratings_df['UserId'] = user_id
-        # Ensure correct types
         ratings_df['BGGId'] = ratings_df['BGGId'].astype(int)
         ratings_df['Rating'] = ratings_df['Rating'].astype(float)
 
-        return ratings_df[['UserId', 'BGGId', 'Rating']] # Ensure correct column order/selection
+        return ratings_df[['UserId', 'BGGId', 'Rating']]
 
     def _update_internal_train_data(self, new_ratings_df: pd.DataFrame) -> None:
         """Appends new ratings to the recommender's training data, handling duplicates."""
         if new_ratings_df.empty:
             return
 
-        # Use concat and drop_duplicates for efficiency
         combined = pd.concat([self.train_data, new_ratings_df], ignore_index=True)
-        # Keep the 'last' entry in case of duplicate user-item pairs, effectively updating the rating
         self.train_data = combined.drop_duplicates(subset=['UserId', 'BGGId'], keep='last')
         logger.debug(f"Updated internal training data. New size: {len(self.train_data)}")
 

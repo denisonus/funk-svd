@@ -1,14 +1,13 @@
 from pydantic import BaseModel, Field
 from typing import Dict, List, Optional, Any
 
-# Define data models for API
 class Rating(BaseModel):
     BGGId: int = Field(..., description="Board Game Geek ID of the game")
     Rating: float = Field(..., ge=1.0, le=10.0, description="User rating from 1.0 to 10.0")
 
 class UserRatings(BaseModel):
-    ratings: List[Rating] = Field(description="List of game ratings")
-    UserId: Optional[int] = Field(None, description="User ID (optional, will be assigned if not provided)")
+    ratings: List[Rating]
+    UserId: Optional[int] = None
 
 class RecommendationResponse(BaseModel):
     BGGId: int
@@ -19,21 +18,19 @@ class RecommendationResponse(BaseModel):
     ImageURL: Optional[str] = None
     
 class RecommendationRequest(BaseModel):
-    user_id: int = Field(..., description="User ID to get recommendations for")
-    num_recommendations: int = Field(10, ge=1, le=100, description="Number of recommendations to return")
-    include_details: bool = Field(True, description="Whether to include game details in the response")
+    user_id: int
+    num_recommendations: int = Field(10, ge=1, le=100)
+    include_details: bool = True
     
 class PopularRecommendationRequest(BaseModel):
-    num_recommendations: int = Field(10, ge=1, le=100, description="Number of popular games to return")
-    include_details: bool = Field(True, description="Whether to include game details in the response")
+    num_recommendations: int = Field(10, ge=1, le=100)
+    include_details: bool = True
 
-# API status response
 class StatusResponse(BaseModel):
     status: str
     message: str
     model_info: Dict[str, Any]
 
-# Rating update response
 class RatingUpdateResponse(BaseModel):
     success: bool
     user_id: int
