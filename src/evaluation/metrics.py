@@ -1,6 +1,6 @@
 import numpy as np
 from typing import List, Dict, Set, Any
-from src.config import EVALUATION_CONFIG
+from src.config.settings import EVALUATION_CONFIG
 
 
 def precision_at_k(recommended_items: List[int], relevant_items: Set[int], k: int) -> float:
@@ -53,7 +53,7 @@ def calculate_coverage(recommended_items_per_user: List[List[int]], catalog_size
 
 
 def evaluate_recommendations(model: Any, test_data: Any) -> Dict[str, Dict[int, float]]:
-    """Evaluate a recommendation model using multiple metrics"""
+    """Evaluate a recommendation models using multiple metrics"""
     k_values = EVALUATION_CONFIG['k_values']
     relevance_threshold = EVALUATION_CONFIG['relevance_threshold']
     

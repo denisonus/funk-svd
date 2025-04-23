@@ -2,7 +2,7 @@ from functools import lru_cache
 
 import pandas as pd
 
-from src.config import TRAIN_DATA_PATH, TEST_DATA_PATH, GAMES_DATA_PATH
+from src.config.settings import TRAIN_DATA_PATH, TEST_DATA_PATH, GAMES_DATA_PATH
 
 
 @lru_cache(maxsize=1)

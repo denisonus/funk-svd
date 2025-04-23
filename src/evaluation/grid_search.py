@@ -9,9 +9,9 @@ from typing import Dict, List, Any, Union, Tuple
 
 from loguru import logger
 
-from src.config import GRID_SEARCH_CONFIG
+from src.config.settings import GRID_SEARCH_CONFIG
 from src.data.load_dataset import get_train_data, get_test_data
-from src.models.evaluation import evaluate_recommendations
+from src.evaluation.metrics import evaluate_recommendations
 from src.models.funk_svd import FunkSVD
 
 
@@ -49,7 +49,7 @@ def _evaluate_params_worker(params: Dict[str, Any], run_id: str) -> Dict[str, An
 class FunkSVDGridSearch:
     def __init__(self, param_grid: Dict[str, List[Any]], save_path: Union[str, Path], load_results: bool,
                  evaluation_k_values: List[int], primary_metric: str) -> None:
-        """Initialize grid search for FunkSVD model"""
+        """Initialize grid search for FunkSVD models"""
         self.param_grid = param_grid
         self.save_path = Path(save_path)
         self.results = []
@@ -155,7 +155,7 @@ class FunkSVDGridSearch:
             json.dump(summary_metrics, f, indent=2)
 
     def _log_best_metrics(self, result: Dict[str, Any]) -> None:
-        """Log the metrics for the current best model"""
+        """Log the metrics for the current best models"""
         log_metrics = [f"RMSE: {result.get('test_rmse', 'N/A'):.4f}", f"MAE: {result.get('test_mae', 'N/A'):.4f}"]
         for k in self.evaluation_k_values:
             log_metrics.extend(

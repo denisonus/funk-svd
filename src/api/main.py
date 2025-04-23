@@ -4,13 +4,14 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends
 
 from schemas import *
-from src.config import FUNK_SVD_MODEL_DIR
+from src.config.settings import FUNK_SVD_MODEL_DIR
 from src.data.load_dataset import get_train_data, get_games_data
-from src.recommender import GameRecommender
+from src.models.recommender import GameRecommender
 
-# Global recommender instance and lock for model updates
+# Global recommender instance and lock for models updates
 instance = None
 model_lock = Lock()
+
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -20,11 +21,12 @@ async def lifespan(_app: FastAPI):
         games_data = get_games_data()
         instance = GameRecommender(train_data, games_data)
         instance.load(FUNK_SVD_MODEL_DIR)
-    
+
     yield
-    
+
     if instance is not None:
         instance.save(FUNK_SVD_MODEL_DIR)
+
 
 app = FastAPI(
     title="Game Recommender API",
@@ -33,19 +35,21 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+
 async def get_recommender():
     global instance
     if instance is None:
         raise HTTPException(
             status_code=500,
-            detail="Recommender model not initialized. The service may still be starting up or encountered an initialization error."
+            detail="Recommender models not initialized. The service may still be starting up or encountered an initialization error."
         )
-            
+
     return instance
+
 
 @app.get("/", response_model=StatusResponse)
 async def root(recommender: GameRecommender = Depends(get_recommender)):
-    """Get API status and model information"""
+    """Get API status and models information"""
     return {
         "status": "ok",
         "message": "Game recommender API is running",
@@ -56,14 +60,15 @@ async def root(recommender: GameRecommender = Depends(get_recommender)):
         }
     }
 
+
 @app.post("/recommendations", response_model=List[RecommendationResponse])
 async def get_recommendations(
-    request: RecommendationRequest,
-    recommender: GameRecommender = Depends(get_recommender)
+        request: RecommendationRequest,
+        recommender: GameRecommender = Depends(get_recommender)
 ):
     """Get personalized recommendations for a user"""
     attributes = ["Name", "YearPublished", "Description", "ImageURL"] if request.include_details else None
-    
+
     try:
         recommendations = recommender.get_recommendations(
             user_id=request.user_id,
@@ -74,23 +79,24 @@ async def get_recommendations(
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"Error getting recommendations: {str(e)}")
 
+
 @app.post("/ratings", response_model=RatingUpdateResponse)
 async def add_ratings(
-    ratings_data: UserRatings, 
-    background_tasks: BackgroundTasks,
-    recommender: GameRecommender = Depends(get_recommender)
+        ratings_data: UserRatings,
+        background_tasks: BackgroundTasks,
+        recommender: GameRecommender = Depends(get_recommender)
 ):
-    """Add new ratings from a user and update the model"""
+    """Add new ratings from a user and update the models"""
     ratings_list = [rating.model_dump() for rating in ratings_data.ratings]
-    
+
     async with model_lock:
         success, user_id, is_new_user = recommender.add_ratings(
             ratings=ratings_list,
             user_id=ratings_data.UserId
         )
-    
+
     background_tasks.add_task(save_model_in_background, recommender)
-    
+
     return {
         "success": success,
         "user_id": user_id,
@@ -98,34 +104,38 @@ async def add_ratings(
         "num_ratings_processed": len(ratings_list)
     }
 
+
 @app.get("/popular", response_model=List[RecommendationResponse])
 async def get_popular_recommendations(
-    request: PopularRecommendationRequest = Depends(),
-    recommender: GameRecommender = Depends(get_recommender)
+        request: PopularRecommendationRequest = Depends(),
+        recommender: GameRecommender = Depends(get_recommender)
 ):
     """Get popular game recommendations based on overall ratings"""
     popular_items = recommender.get_popular_recommendations(
-        recommender.train_data, 
+        recommender.train_data,
         n=request.num_recommendations
     )
-    
+
     result = []
     attributes_to_include = ["Name", "YearPublished", "Description", "ImageURL"]
     for item_id, popularity in popular_items:
         rec = {"BGGId": item_id, "PredictedRating": popularity}
-        
+
         if request.include_details and recommender.games_data and item_id in recommender.games_data:
             game_details = recommender.games_data[item_id]
             rec.update({k: game_details[k] for k in attributes_to_include if k in game_details})
-        
+
         result.append(rec)
-    
+
     return result
+
 
 async def save_model_in_background(recommender: GameRecommender):
     async with model_lock:
         recommender.save(FUNK_SVD_MODEL_DIR)
 
+
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run("src.api.main:app", host="0.0.0.0", port=8000, reload=True)

@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 
-from src.config import FUNK_SVD_CONFIG
+from src.config.settings import FUNK_SVD_CONFIG
 
 
 class FunkSVD:
@@ -39,7 +39,7 @@ class FunkSVD:
         random.seed(42)
 
     def initialize_factors(self, data: pd.DataFrame) -> None:
-        """Initialize model parameters directly from DataFrame"""
+        """Initialize models parameters directly from DataFrame"""
         self.user_ids = list(data['UserId'].unique())
         self.item_ids = list(data['BGGId'].unique())
 
@@ -84,7 +84,7 @@ class FunkSVD:
         return predictions
 
     def fit(self, train_data: pd.DataFrame, test_data: Optional[pd.DataFrame] = None) -> None:
-        """Train the model using DataFrame inputs"""
+        """Train the models using DataFrame inputs"""
         self.initialize_factors(train_data)
 
         train_ratings = list(train_data[['UserId', 'BGGId', 'Rating']].itertuples(index=False, name=None))
@@ -231,7 +231,7 @@ class FunkSVD:
         return item_id, item_idx, is_new_item
 
     def update_with_ratings(self, new_ratings_df: pd.DataFrame) -> bool:
-        """Update model factors and biases using incremental SGD based on new ratings."""
+        """Update models factors and biases using incremental SGD based on new ratings."""
         if new_ratings_df.empty:
             logger.warning("Received empty DataFrame for incremental update.")
             return False
@@ -265,10 +265,10 @@ class FunkSVD:
         return True
 
     def save_model(self, save_path: Union[str, Path]) -> None:
-        """Save model to disk"""
+        """Save models to disk"""
         save_path = Path(save_path)
         save_path.mkdir(parents=True, exist_ok=True)
-        logger.debug(f"Saving model to {save_path}")
+        logger.debug(f"Saving models to {save_path}")
 
         np.save(save_path / 'user_factors.npy', self.user_factors)
         np.save(save_path / 'item_factors.npy', self.item_factors)
@@ -286,9 +286,9 @@ class FunkSVD:
         np.save(save_path / 'metadata.npy', metadata)
 
     def load_model(self, model_path: Union[str, Path]) -> None:
-        """Load model data into an existing FunkSVD instance"""
+        """Load models data into an existing FunkSVD instance"""
         model_path = Path(model_path)
-        logger.debug(f"Loading model from {model_path}")
+        logger.debug(f"Loading models from {model_path}")
 
         self.user_factors = np.load(model_path / 'user_factors.npy')
         self.item_factors = np.load(model_path / 'item_factors.npy')

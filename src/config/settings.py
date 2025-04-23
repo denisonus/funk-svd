@@ -1,7 +1,7 @@
 from pathlib import Path
 
 # Base directory
-BASE_DIR = Path(__file__).parent.parent
+BASE_DIR = Path(__file__).parent.parent.parent
 
 # Model paths
 MODELS_DIR = BASE_DIR / 'data' / 'models'
@@ -41,9 +41,3 @@ EVALUATION_CONFIG = {
     'relevance_threshold': 7.0,  # Minimum rating to be considered relevant
     'k_values': [10, 20],
 }
-
-"""
-Reference parameter sets:
-Params from the book: {'n_factors': 25, 'learn_rate': 0.002, 'bias_learn_rate': 0.005, 'regularization': 0.002, 'bias_reg': 0.002}
-Params from GitHub: {'n_factors': 20, 'learn_rate': 0.01, 'bias_learn_rate': 0.01, 'regularization': 0.02, 'bias_reg': 0.02}
-"""

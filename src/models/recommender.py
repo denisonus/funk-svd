@@ -5,7 +5,7 @@ import pandas as pd
 from loguru import logger
 
 from src.models.funk_svd import FunkSVD
-from src.models.evaluation import evaluate_recommendations
+from src.evaluation.metrics import evaluate_recommendations
 
 
 class GameRecommender:
@@ -51,7 +51,7 @@ class GameRecommender:
     def add_ratings(self, ratings: List[Dict[str, Any]], user_id: Optional[int] = None) -> Tuple[
         bool, Optional[int], bool]:
         """
-        Adds new ratings and triggers an incremental update of the model.
+        Adds new ratings and triggers an incremental update of the models.
         """
         if not ratings:
             logger.warning("add_ratings called with empty ratings list.")
