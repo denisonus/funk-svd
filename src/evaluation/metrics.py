@@ -1,6 +1,6 @@
-import numpy as np
-from typing import List, Dict, Set, Any
+from typing import List, Dict, Set
 
+import numpy as np
 import pandas as pd
 
 from src.config.settings import EVALUATION_CONFIG
@@ -45,48 +45,26 @@ def ndcg_at_k(recommended_items: List[int], relevant_items: Dict[int, float], k:
     return dcg / idcg if idcg > 0 else 0.0
 
 
-def calculate_coverage(recommended_items_per_user: List[List[int]], catalog_size: int) -> float:
-    """Calculate catalog coverage"""
-    if not recommended_items_per_user or catalog_size <= 0:
-        return 0.0
-    
-    all_recommended = set()
-    for user_recommendations in recommended_items_per_user:
-        all_recommended.update(user_recommendations)
-    
-    return len(all_recommended) / catalog_size
-
-
 def evaluate_recommendations(model: FunkSVD, test_data: pd.DataFrame) -> Dict[str, Dict[int, float]]:
     """Evaluate a recommendation model using multiple metrics, focusing only on rated test items"""
     k_values = EVALUATION_CONFIG['k_values']
     relevance_threshold = EVALUATION_CONFIG['relevance_threshold']
     
-    user_test_items = {}
-    all_test_items = set()
-    
-    for _, row in test_data.iterrows():
-        user_id, item_id, rating = row['UserId'], row['BGGId'], row['Rating']
-        
-        if user_id not in model.user_id_to_idx:
-            continue
-            
-        if user_id not in user_test_items:
-            user_test_items[user_id] = {}
-        
-        user_test_items[user_id][item_id] = rating
-        all_test_items.add(item_id)
-    
-    result_metrics = {
+    metrics = {
         'precision': {k: 0.0 for k in k_values},
         'recall': {k: 0.0 for k in k_values},
-        'ndcg': {k: 0.0 for k in k_values},
+        'ndcg': {k: 0.0 for k in k_values}
     }
     
-    user_recommendations = []
     users_evaluated = 0
     
-    for user_id, item_ratings in user_test_items.items():
+    for user_id in test_data['UserId'].unique():
+        if user_id not in model.user_id_to_idx:
+            continue
+
+        user_test_data = test_data[test_data['UserId'] == user_id]
+
+        item_ratings = {row['BGGId']: row['Rating'] for _, row in user_test_data.iterrows()}
         relevant_items_dict = {item_id: rating for item_id, rating in item_ratings.items()
                               if rating >= relevance_threshold}
         
@@ -96,25 +74,17 @@ def evaluate_recommendations(model: FunkSVD, test_data: pd.DataFrame) -> Dict[st
         users_evaluated += 1
         relevant_items_set = set(relevant_items_dict.keys())
         
-        test_item_ids = list(item_ratings.keys())
-        predictions = model.predict_for_user(user_id, test_item_ids)
-        
-        recommended_items = [item_id for item_id, _ in
-                            sorted(predictions.items(), key=lambda x: x[1], reverse=True)]
-        
-        user_recommendations.append(recommended_items[:max(k_values)])
+        predictions = model.predict_for_user(user_id, list(item_ratings.keys()))
+        recommended_items = [item_id for item_id, _ in sorted(predictions.items(), key=lambda x: x[1], reverse=True)]
         
         for k in k_values:
-            result_metrics['precision'][k] += precision_at_k(recommended_items, relevant_items_set, k)
-            result_metrics['recall'][k] += recall_at_k(recommended_items, relevant_items_set, k)
-            result_metrics['ndcg'][k] += ndcg_at_k(recommended_items, relevant_items_dict, k)
-    
-    coverage = calculate_coverage(user_recommendations, len(all_test_items))
-    result_metrics['coverage'] = {k: coverage for k in k_values}
+            metrics['precision'][k] += precision_at_k(recommended_items, relevant_items_set, k)
+            metrics['recall'][k] += recall_at_k(recommended_items, relevant_items_set, k)
+            metrics['ndcg'][k] += ndcg_at_k(recommended_items, relevant_items_dict, k)
     
     if users_evaluated > 0:
-        for metric in ['precision', 'recall', 'ndcg']:
+        for metric in metrics:
             for k in k_values:
-                result_metrics[metric][k] /= users_evaluated
-    
-    return result_metrics
+                metrics[metric][k] /= users_evaluated
+
+    return metrics

@@ -60,7 +60,7 @@ class FunkSVDGridSearch:
         self.primary_metric = primary_metric
 
         self.metrics_to_track = ['test_rmse', 'test_mae'] + [f'{m}@{k}' for m in
-                                                             ['precision', 'recall', 'ndcg', 'coverage'] for k in
+                                                             ['precision', 'recall', 'ndcg'] for k in
                                                              self.evaluation_k_values]
 
         self.best_results = self._initialize_best_results()
