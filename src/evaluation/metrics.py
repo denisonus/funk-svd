@@ -1,6 +1,10 @@
 import numpy as np
 from typing import List, Dict, Set, Any
+
+import pandas as pd
+
 from src.config.settings import EVALUATION_CONFIG
+from src.models.funk_svd import FunkSVD
 
 
 def precision_at_k(recommended_items: List[int], relevant_items: Set[int], k: int) -> float:
@@ -27,16 +31,17 @@ def ndcg_at_k(recommended_items: List[int], relevant_items: Dict[int, float], k:
     """Calculate Normalized Discounted Cumulative Gain at k (NDCG@k)"""
     if k <= 0 or not recommended_items or not relevant_items:
         return 0.0
-    
+
     dcg = 0.0
     for i, item_id in enumerate(recommended_items[:k]):
         if item_id in relevant_items:
             rel = relevant_items[item_id]
-            dcg += rel / np.log2(i + 2)
-    
+            gain = 2**rel - 1
+            dcg += gain / np.log2(i + 2)
+
     ideal_items = sorted(relevant_items.items(), key=lambda x: x[1], reverse=True)
-    idcg = sum(rel / np.log2(i + 2) for i, (_, rel) in enumerate(ideal_items[:k]))
-    
+    idcg = sum((2**rel - 1) / np.log2(i + 2) for i, (_, rel) in enumerate(ideal_items[:k]))
+
     return dcg / idcg if idcg > 0 else 0.0
 
 
@@ -52,22 +57,25 @@ def calculate_coverage(recommended_items_per_user: List[List[int]], catalog_size
     return len(all_recommended) / catalog_size
 
 
-def evaluate_recommendations(model: Any, test_data: Any) -> Dict[str, Dict[int, float]]:
-    """Evaluate a recommendation models using multiple metrics"""
+def evaluate_recommendations(model: FunkSVD, test_data: pd.DataFrame) -> Dict[str, Dict[int, float]]:
+    """Evaluate a recommendation model using multiple metrics, focusing only on rated test items"""
     k_values = EVALUATION_CONFIG['k_values']
     relevance_threshold = EVALUATION_CONFIG['relevance_threshold']
     
-    user_item_relevance = {}
-    all_items = set()
+    user_test_items = {}
+    all_test_items = set()
     
     for _, row in test_data.iterrows():
         user_id, item_id, rating = row['UserId'], row['BGGId'], row['Rating']
-            
-        if user_id not in user_item_relevance:
-            user_item_relevance[user_id] = {}
         
-        user_item_relevance[user_id][item_id] = rating
-        all_items.add(item_id)
+        if user_id not in model.user_id_to_idx:
+            continue
+            
+        if user_id not in user_test_items:
+            user_test_items[user_id] = {}
+        
+        user_test_items[user_id][item_id] = rating
+        all_test_items.add(item_id)
     
     result_metrics = {
         'precision': {k: 0.0 for k in k_values},
@@ -76,23 +84,22 @@ def evaluate_recommendations(model: Any, test_data: Any) -> Dict[str, Dict[int, 
     }
     
     user_recommendations = []
-    users_with_relevant_items = 0
+    users_evaluated = 0
     
-    for user_id, item_ratings in user_item_relevance.items():
-        relevant_items_dict = {item_id: rating for item_id, rating in item_ratings.items() 
+    for user_id, item_ratings in user_test_items.items():
+        relevant_items_dict = {item_id: rating for item_id, rating in item_ratings.items()
                               if rating >= relevance_threshold}
         
         if not relevant_items_dict:
             continue
             
-        users_with_relevant_items += 1
+        users_evaluated += 1
         relevant_items_set = set(relevant_items_dict.keys())
         
-        candidate_items = model.item_ids.copy()
+        test_item_ids = list(item_ratings.keys())
+        predictions = model.predict_for_user(user_id, test_item_ids)
         
-        predictions = model.predict_for_user(user_id, candidate_items)
-        
-        recommended_items = [item_id for item_id, _ in 
+        recommended_items = [item_id for item_id, _ in
                             sorted(predictions.items(), key=lambda x: x[1], reverse=True)]
         
         user_recommendations.append(recommended_items[:max(k_values)])
@@ -102,12 +109,12 @@ def evaluate_recommendations(model: Any, test_data: Any) -> Dict[str, Dict[int, 
             result_metrics['recall'][k] += recall_at_k(recommended_items, relevant_items_set, k)
             result_metrics['ndcg'][k] += ndcg_at_k(recommended_items, relevant_items_dict, k)
     
-    coverage = calculate_coverage(user_recommendations, len(all_items))
+    coverage = calculate_coverage(user_recommendations, len(all_test_items))
     result_metrics['coverage'] = {k: coverage for k in k_values}
     
-    if users_with_relevant_items > 0:
+    if users_evaluated > 0:
         for metric in ['precision', 'recall', 'ndcg']:
             for k in k_values:
-                result_metrics[metric][k] /= users_with_relevant_items
+                result_metrics[metric][k] /= users_evaluated
     
     return result_metrics

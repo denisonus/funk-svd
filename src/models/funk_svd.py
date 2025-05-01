@@ -19,18 +19,18 @@ class FunkSVD:
         self.stop_threshold: float = params['stop_threshold']
         self.learn_rate: float = params['learn_rate']
         self.bias_learn_rate: float = params['bias_learn_rate']
-        self.regularization: float = params['regularization']
+        self.reg: float = params['regularization']
         self.bias_reg: float = params['bias_reg']
         self.incremental_learn_rate: float = params.get('incremental_learn_rate', self.learn_rate * 0.5)
         self.incremental_bias_learn_rate: float = params.get('incremental_bias_learn_rate', self.bias_learn_rate * 0.5)
         self.incremental_iterations: int = params.get('incremental_iterations', 5)
 
         # Model state
-        self.global_mean: float = 0.0
-        self.user_bias: Optional[np.ndarray] = None
-        self.item_bias: Optional[np.ndarray] = None
-        self.user_factors: Optional[np.ndarray] = None
-        self.item_factors: Optional[np.ndarray] = None
+        self.g_mean: float = 0.0
+        self.u_bias: Optional[np.ndarray] = None
+        self.i_bias: Optional[np.ndarray] = None
+        self.u_factors: Optional[np.ndarray] = None
+        self.i_factors: Optional[np.ndarray] = None
         self.user_id_to_idx: Dict[int, int] = {}
         self.item_id_to_idx: Dict[int, int] = {}
         self.user_ids: List[int] = []
@@ -48,19 +48,19 @@ class FunkSVD:
 
         n_users = len(self.user_id_to_idx)
         n_items = len(self.item_id_to_idx)
-        self.user_factors = np.full((n_users, self.n_factors), 0.1)
-        self.item_factors = np.full((n_items, self.n_factors), 0.1)
-        self.user_bias = np.zeros(n_users)
-        self.item_bias = np.zeros(n_items)
+        self.u_factors = np.full((n_users, self.n_factors), 0.1)
+        self.i_factors = np.full((n_items, self.n_factors), 0.1)
+        self.u_bias = np.zeros(n_users)
+        self.i_bias = np.zeros(n_items)
 
-        self.global_mean = data['Rating'].mean()
+        self.g_mean = data['Rating'].mean()
 
     def predict(self, user_idx: int, item_idx: int, factors_to_use: Optional[int] = None) -> float:
         """Predict rating for user-item pair"""
         factors_to_use = self.n_factors if factors_to_use is None else min(factors_to_use, self.n_factors)
 
-        pq = np.dot(self.user_factors[user_idx][:factors_to_use], self.item_factors[item_idx][:factors_to_use].T)
-        prediction = self.global_mean + self.user_bias[user_idx] + self.item_bias[item_idx] + pq
+        pq = np.dot(self.u_factors[user_idx][:factors_to_use], self.i_factors[item_idx][:factors_to_use].T)
+        prediction = self.g_mean + self.u_bias[user_idx] + self.i_bias[item_idx] + pq
 
         return np.clip(prediction, 1, 10)
 
@@ -131,14 +131,14 @@ class FunkSVD:
 
             err = rating - self.predict(u, i, factor_idx + 1)
 
-            self.user_bias[u] += bias_learn_rate * (err - self.bias_reg * self.user_bias[u])
-            self.item_bias[i] += bias_learn_rate * (err - self.bias_reg * self.item_bias[i])
+            self.u_bias[u] += bias_learn_rate * (err - self.bias_reg * self.u_bias[u])
+            self.i_bias[i] += bias_learn_rate * (err - self.bias_reg * self.i_bias[i])
 
-            u_factor = self.user_factors[u][factor_idx]
-            i_factor = self.item_factors[i][factor_idx]
+            u_factor = self.u_factors[u][factor_idx]
+            i_factor = self.i_factors[i][factor_idx]
 
-            self.user_factors[u][factor_idx] += learn_rate * (err * i_factor - self.regularization * u_factor)
-            self.item_factors[i][factor_idx] += learn_rate * (err * u_factor - self.regularization * i_factor)
+            self.u_factors[u][factor_idx] += learn_rate * (err * i_factor - self.reg * u_factor)
+            self.i_factors[i][factor_idx] += learn_rate * (err * u_factor - self.reg * i_factor)
 
         return self.calculate_rmse(ratings, factor_idx)
 
@@ -197,11 +197,11 @@ class FunkSVD:
             self.user_ids.append(user_id)
             self.user_id_to_idx[user_id] = user_idx
 
-            new_bias = np.mean(self.user_bias) if self.user_bias is not None and len(self.user_bias) > 0 else 0.0
-            new_factors = np.mean(self.user_factors, axis=0) if self.user_factors is not None and len(self.user_factors) > 0 else np.full((1, self.n_factors), 0.1)
+            new_bias = np.mean(self.u_bias) if self.u_bias is not None and len(self.u_bias) > 0 else 0.0
+            new_factors = np.mean(self.u_factors, axis=0) if self.u_factors is not None and len(self.u_factors) > 0 else np.full((1, self.n_factors), 0.1)
 
-            self.user_factors = np.vstack([self.user_factors, new_factors]) if self.user_factors is not None else new_factors.reshape(1, -1)
-            self.user_bias = np.append(self.user_bias, new_bias) if self.user_bias is not None else np.array([new_bias])
+            self.u_factors = np.vstack([self.u_factors, new_factors]) if self.u_factors is not None else new_factors.reshape(1, -1)
+            self.u_bias = np.append(self.u_bias, new_bias) if self.u_bias is not None else np.array([new_bias])
 
             logger.info(f"Added new user {user_id} with index {user_idx}. Initial bias: {new_bias:.4f}")
         else:
@@ -218,11 +218,11 @@ class FunkSVD:
             self.item_ids.append(item_id)
             self.item_id_to_idx[item_id] = item_idx
 
-            new_bias = np.mean(self.item_bias) if self.item_bias is not None and len(self.item_bias) > 0 else 0.0
-            new_factors = np.mean(self.item_factors, axis=0) if self.item_factors is not None and len(self.item_factors) > 0 else np.full((1, self.n_factors), 0.1)
+            new_bias = np.mean(self.i_bias) if self.i_bias is not None and len(self.i_bias) > 0 else 0.0
+            new_factors = np.mean(self.i_factors, axis=0) if self.i_factors is not None and len(self.i_factors) > 0 else np.full((1, self.n_factors), 0.1)
 
-            self.item_factors = np.vstack([self.item_factors, new_factors]) if self.item_factors is not None else new_factors.reshape(1, -1)
-            self.item_bias = np.append(self.item_bias, new_bias) if self.item_bias is not None else np.array([new_bias])
+            self.i_factors = np.vstack([self.i_factors, new_factors]) if self.i_factors is not None else new_factors.reshape(1, -1)
+            self.i_bias = np.append(self.i_bias, new_bias) if self.i_bias is not None else np.array([new_bias])
 
             logger.info(f"Added new item {item_id} with index {item_idx}. Initial bias: {new_bias:.4f}")
         else:
@@ -270,15 +270,15 @@ class FunkSVD:
         save_path.mkdir(parents=True, exist_ok=True)
         logger.debug(f"Saving models to {save_path}")
 
-        np.save(save_path / 'user_factors.npy', self.user_factors)
-        np.save(save_path / 'item_factors.npy', self.item_factors)
-        np.save(save_path / 'user_bias.npy', self.user_bias)
-        np.save(save_path / 'item_bias.npy', self.item_bias)
+        np.save(save_path / 'user_factors.npy', self.u_factors)
+        np.save(save_path / 'item_factors.npy', self.i_factors)
+        np.save(save_path / 'user_bias.npy', self.u_bias)
+        np.save(save_path / 'item_bias.npy', self.i_bias)
 
         metadata = {
             'user_id_to_idx': self.user_id_to_idx,
             'item_id_to_idx': self.item_id_to_idx,
-            'global_mean': self.global_mean,
+            'global_mean': self.g_mean,
             'n_factors': self.n_factors,
             'user_ids': self.user_ids,
             'item_ids': self.item_ids
@@ -290,15 +290,15 @@ class FunkSVD:
         model_path = Path(model_path)
         logger.debug(f"Loading models from {model_path}")
 
-        self.user_factors = np.load(model_path / 'user_factors.npy')
-        self.item_factors = np.load(model_path / 'item_factors.npy')
-        self.user_bias = np.load(model_path / 'user_bias.npy')
-        self.item_bias = np.load(model_path / 'item_bias.npy')
+        self.u_factors = np.load(model_path / 'user_factors.npy')
+        self.i_factors = np.load(model_path / 'item_factors.npy')
+        self.u_bias = np.load(model_path / 'user_bias.npy')
+        self.i_bias = np.load(model_path / 'item_bias.npy')
         metadata = np.load(model_path / 'metadata.npy', allow_pickle=True).item()
 
         self.user_id_to_idx = metadata['user_id_to_idx']
         self.item_id_to_idx = metadata['item_id_to_idx']
-        self.global_mean = metadata['global_mean']
+        self.g_mean = metadata['global_mean']
         self.n_factors = metadata['n_factors']
         self.user_ids = metadata['user_ids']
         self.item_ids = metadata['item_ids']

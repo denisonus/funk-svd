@@ -9,9 +9,10 @@ from src.evaluation.metrics import evaluate_recommendations
 
 
 class GameRecommender:
-    def __init__(self, train_data: pd.DataFrame, games_data: Optional[pd.DataFrame] = None) -> None:
+    def __init__(self, train_data: pd.DataFrame, test_data: pd.DataFrame, games_data: Optional[pd.DataFrame] = None) -> None:
         self.model = FunkSVD()
         self.train_data = train_data
+        self.test_data = test_data
         self.games_data = None
         if games_data is not None:
             self.games_data = {int(row['BGGId']): row.to_dict() for _, row in games_data.iterrows()}
@@ -21,8 +22,13 @@ class GameRecommender:
 
     def get_recommendations(self, user_id: int, n: int = 10, attributes: Optional[List[str]] = None) -> List[
         Dict[str, Any]]:
-        rated_items = set(self.train_data[self.train_data['UserId'] == user_id]['BGGId'].unique())
-        candidate_items = [i for i in self.model.item_ids if i not in rated_items]
+        train_rated_items = set(self.train_data[self.train_data['UserId'] == user_id]['BGGId'].unique())
+        test_rated_items = set(self.test_data[self.test_data['UserId'] == user_id]['BGGId'].unique())
+
+        all_rated_items = train_rated_items.union(test_rated_items)
+        
+        candidate_items = [i for i in self.model.item_ids if i not in all_rated_items]
+        
         predictions = self.model.predict_for_user(user_id, candidate_items)
         sorted_preds = sorted(predictions.items(), key=lambda x: x[1], reverse=True)[:n]
 
@@ -35,9 +41,9 @@ class GameRecommender:
             results.append(rec)
         return results
 
-    def train(self, test_data: Optional[pd.DataFrame] = None, **kwargs) -> None:
+    def train(self, **kwargs) -> None:
         self.model = FunkSVD(**kwargs)
-        self.model.fit(self.train_data, test_data)
+        self.model.fit(self.train_data, self.test_data)
 
     def save(self, save_path: str) -> None:
         self.model.save_model(save_path)
@@ -45,8 +51,8 @@ class GameRecommender:
     def load(self, model_path: str) -> None:
         self.model.load_model(model_path)
 
-    def evaluate(self, test_data: pd.DataFrame) -> Dict[str, Dict[int, float]]:
-        return evaluate_recommendations(model=self.model, test_data=test_data)
+    def evaluate(self) -> Dict[str, Dict[int, float]]:
+        return evaluate_recommendations(model=self.model, test_data=self.test_data)
 
     def add_ratings(self, ratings: List[Dict[str, Any]], user_id: Optional[int] = None) -> Tuple[
         bool, Optional[int], bool]:
