@@ -27,10 +27,10 @@ GRID_SEARCH_CONFIG = {
     'save_path': GRID_SEARCH_DIR,
     'load_results': False,
     'evaluation_k_values': [10, 20],
-    'primary_metric': 'ndcg@20',
+    'primary_metric': 'ndcg@10',
     'param_grid': {
-        'n_factors': [5, 10],
-        'learn_rate': [0.002, 0.005],
+        'n_factors': [5, 10, 20],
+        'learn_rate': [0.001, 0.002, 0.005],
         'bias_learn_rate': [0.002, 0.005],
         'regularization': [0.002, 0.005],
         'bias_reg': [0.002, 0.005],
