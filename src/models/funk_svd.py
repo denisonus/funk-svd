@@ -35,6 +35,9 @@ class FunkSVD:
         self.item_id_to_idx: Dict[int, int] = {}
         self.user_ids: List[int] = []
         self.item_ids: List[int] = []
+        
+        self.train_errors: Dict[int, List[float]] = {}  # {factor: [error_per_epoch]}
+        self.test_errors: Dict[int, List[float]] = {}   # {factor: [error_per_epoch]}
 
         random.seed(42)
 
@@ -92,6 +95,10 @@ class FunkSVD:
         test_ratings = None
         if test_data is not None:
             test_ratings = list(test_data[['UserId', 'BGGId', 'Rating']].itertuples(index=False, name=None))
+            
+        # Initialize error tracking dictionaries
+        self.train_errors = {}
+        self.test_errors = {}
 
         for factor in range(self.n_factors):
             iterations = 0
@@ -101,12 +108,22 @@ class FunkSVD:
             finished = False
 
             indices = random.sample(range(len(train_ratings)), len(train_ratings))
+            
+            # Initialize lists for this factor
+            self.train_errors[factor] = []
+            if test_ratings:
+                self.test_errors[factor] = []
 
             while not finished:
                 train_rmse = self.update_factor(factor, indices, train_ratings, self.learn_rate, self.bias_learn_rate)
+                
+                # Store train error
+                self.train_errors[factor].append(train_rmse)
 
                 if test_ratings:
                     test_err = self.calculate_rmse(test_ratings, factor)
+                    # Store test error
+                    self.test_errors[factor].append(test_err)
                     logger.info(
                         f"Epoch {iterations}, factor={factor}, Train RMSE={train_rmse:.4f}, Test RMSE={test_err:.4f}")
                 else:
@@ -152,7 +169,7 @@ class FunkSVD:
             logger.debug(f'Finished training: converged (improvement={last_err - current_err:.6f})')
             return True
 
-        if test_err > last_test_err * 1.005 and iterations > 5:
+        if test_err > last_test_err and iterations > 5:
             logger.info(f'Early stopping: Test RMSE increased from {last_test_err:.6f} to {test_err:.6f}')
             return True
 
@@ -303,3 +320,9 @@ class FunkSVD:
         self.user_ids = metadata['user_ids']
         self.item_ids = metadata['item_ids']
 
+    def get_learning_curves(self) -> Dict[str, Dict[int, List[float]]]:
+        """Return the tracked train and test errors for visualization"""
+        return {
+            'train': self.train_errors,
+            'test': self.test_errors
+        }

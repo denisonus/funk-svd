@@ -15,12 +15,12 @@ GAMES_DATA_PATH = BASE_DIR / 'data' / 'raw' / 'games.csv'
 # Default FunkSVD parameters
 FUNK_SVD_CONFIG = {
     'n_factors': 5,
-    'max_iterations': 100,
+    'max_iterations': 50,
     'stop_threshold': 0.001,
-    'learn_rate': 0.002,
-    'bias_learn_rate': 0.002,
-    'regularization': 0.002,
-    'bias_reg': 0.002
+    'learn_rate': 0.001,
+    'bias_learn_rate': 0.005,
+    'regularization': 0.005,
+    'bias_reg': 0.005
 }
 
 GRID_SEARCH_CONFIG = {

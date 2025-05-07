@@ -8,7 +8,6 @@ from src.config.settings import FUNK_SVD_MODEL_DIR
 from src.data.load_dataset import get_train_data, get_games_data
 from src.models.recommender import GameRecommender
 
-# Global recommender instance and lock for models updates
 instance = None
 model_lock = Lock()
 
