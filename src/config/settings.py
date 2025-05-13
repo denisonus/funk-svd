@@ -39,5 +39,5 @@ GRID_SEARCH_CONFIG = {
 
 EVALUATION_CONFIG = {
     'relevance_threshold': 7.0,  # Minimum rating to be considered relevant
-    'k_values': [10, 20],
+    'k_values': [5, 10, 20],
 }
