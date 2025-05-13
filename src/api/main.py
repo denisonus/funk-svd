@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends
 
 from schemas import *
 from src.config.settings import FUNK_SVD_MODEL_DIR
-from src.data.load_dataset import get_train_data, get_games_data
+from src.data.load_dataset import get_train_data, get_games_data, get_test_data
 from src.models.recommender import GameRecommender
 
 instance = None
@@ -17,8 +17,9 @@ async def lifespan(_app: FastAPI):
     global instance
     if instance is None:
         train_data = get_train_data()
+        test_data = get_test_data()
         games_data = get_games_data()
-        instance = GameRecommender(train_data, games_data)
+        instance = GameRecommender(train_data, test_data, games_data)
         instance.load(FUNK_SVD_MODEL_DIR)
 
     yield
@@ -137,4 +138,4 @@ async def save_model_in_background(recommender: GameRecommender):
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("src.api.main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("src.api.main:app", host="localhost", port=8000, reload=True)

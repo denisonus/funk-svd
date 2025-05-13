@@ -2,7 +2,6 @@
 .venv/
 /data/
 src/__pycache__/
-notebooks
 
 *.pyc
 *.pkl
